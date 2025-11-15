@@ -2,7 +2,7 @@ import Toast from './Toast';
 
 const ToastContainer = ({ toasts, removeToast }) => {
   return (
-    <div className="fixed top-4 right-4 z-50 flex flex-col gap-2">
+    <div className="fixed top-20 right-4 z-[9999] flex flex-col gap-2">
       {toasts.map((toast) => (
         <Toast
           key={toast.id}

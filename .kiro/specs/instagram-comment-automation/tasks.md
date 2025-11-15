@@ -170,3 +170,45 @@
   - Add startup checks for required environment variables
   - Test complete flow from UI to Instagram reply
   - _Requirements: All requirements integration_
+
+
+
+ -[x] 17. Build a single-click automation that: when a user uploads a reel/video + deep context text - in the frontend, the backend will (A) generate trending topic/title, SEO-friendly description, keywords, and hashtags with LangChain graph nodes, (B) assemble two platform-specific posts (Instagram Reels and YouTube video) from the same source media and metadata, and (C) upload both simultaneously using their official APIs. Provide realtime progress to the frontend over socket.io.
+
+Acceptance criteria
+
+Frontend flow: upload → select models/providers → click “Publish to Instagram + YouTube” → realtime status updates for each step.
+
+Backend: implements orchestration endpoint /api/publish/dual which returns a job id. Websocket updates with job progress per step.
+
+Both uploads must be recorded in DB (posts collection) with status, platform ids, and raw API responses.
+
+Must support multiple model providers (Google Gemini, OpenAI, OpenRouter, Anthropic Claude, Meta LLaMA) — user picks provider/model per subtask in UI.
+
+Test: end-to-end: upload a 15–60s reel, generate content, publish to both platforms, and confirm both platform IDs saved.
+
+
+- [x] 18. Implement the Instagram Reels publishing flow according to Meta docs
+  - Create media container with POST /{ig-user-id}/media (media_type: "REELS", video_url, caption)
+  - Publish via POST /{ig-user-id}/media_publish with container id
+  - Upload video to public server (Cloudinary) before creating container
+  - Wait for container processing with status polling (up to 20 attempts)
+  - Handle rate limits and retry logic with exponential backoff
+  - Support optional cover image via cover_url parameter
+  - Save IG media_id, permalink, and publish response to DB
+  - Emit socket event publish:instagram:done on success
+  - Emit socket event publish:instagram:error on failure
+  - _Requirements: Instagram Reels API v21.0, Cloudinary integration, Socket.IO events_
+
+
+- [x] 19. Implement YouTube resumable upload with progress tracking
+  - Use YouTube Data API v3 videos.insert method with uploadType=resumable
+  - Initialize resumable upload session and get upload URL
+  - Upload video in 5MB chunks with Content-Range headers
+  - Handle interruptions and resume from last uploaded byte (308 status)
+  - Implement progress callbacks to emit Socket.IO events every 5%
+  - Save YouTube videoId, URL, and full API response in DB
+  - Emit socket event publish:youtube:done on success
+  - Emit socket event publish:youtube:error on failure
+  - Emit socket event publish:youtube:progress during upload
+  - _Requirements: YouTube Data API v3, Resumable upload protocol, Socket.IO progress events_

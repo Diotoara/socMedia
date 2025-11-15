@@ -103,6 +103,8 @@ export const aiPostAPI = {
   saveContext: (data) => api.post('/api/ai-post/context', data),
   getContext: () => api.get('/api/ai-post/context'),
   deletePost: (postId) => api.delete(`/api/ai-post/posts/${postId}`),
+  saveApiKey: (apiKey) => api.post('/api/ai-post/api-key', { apiKey }),
+  getApiKeyStatus: () => api.get('/api/ai-post/api-key'),
 };
 
 export default api;

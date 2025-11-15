@@ -15,7 +15,15 @@
     "test:ai-post": "node server/test-ai-post-generator.js",
     "test:gemini-image": "node server/test-gemini-image.js",
     "test:comet": "node server/test-comet-api.js",
-    "check-token": "node server/utils/check-token-scopes.js"
+    "test:oauth": "node server/tests/run-all-tests.js",
+    "test:oauth-flow": "node server/tests/oauth-flow.test.js",
+    "test:upload-flow": "node server/tests/upload-flow.test.js",
+    "check-token": "node server/utils/check-token-scopes.js",
+    "verify-oauth": "node verify-oauth-setup.js",
+    "test:oauth-url": "node test-oauth-url.js",
+    "test:token-refresh": "node test-token-refresh.js",
+    "test:oauth-session": "node test-oauth-session.js",
+    "verify:v24-upgrade": "node verify-v24-upgrade.js"
   },
   "keywords": [
     "instagram",
@@ -27,6 +35,7 @@
   "license": "ISC",
   "type": "commonjs",
   "dependencies": {
+    "@google/genai": "^1.29.1",
     "@google/generative-ai": "^0.24.1",
     "@langchain/google-genai": "^1.0.0",
     "@langchain/langgraph": "^1.0.1",
@@ -38,9 +47,15 @@
     "express": "^5.1.0",
     "express-session": "^1.18.2",
     "form-data": "^4.0.4",
+    "googleapis": "^166.0.0",
     "instagram-private-api": "^1.46.1",
     "jsonwebtoken": "^9.0.2",
+    "mime": "^4.1.0",
     "mongoose": "^8.19.3",
+    "multer": "^2.0.2",
     "socket.io": "^4.8.1"
+  },
+  "devDependencies": {
+    "@types/node": "^24.10.1"
   }
 }

@@ -16,10 +16,14 @@ class AIPostController {
    * Generate and publish AI post to Instagram
    */
   async generateAndPublishPost(req, res) {
+    console.log('[AIPostController] generateAndPublishPost called');
     const userId = req.user?.id;
     const io = req.app.get('io');
     
+    console.log('[AIPostController] User ID:', userId);
+    
     if (!userId) {
+      console.log('[AIPostController] No user ID found');
       return res.status(401).json({
         success: false,
         error: 'User not authenticated'
@@ -27,6 +31,7 @@ class AIPostController {
     }
 
     try {
+      console.log('[AIPostController] Starting generation process...');
       const {
         accountType,
         targetAudience,
@@ -78,9 +83,11 @@ class AIPostController {
 
       // Decrypt credentials
       const accessToken = this.encryptionService.decrypt(user.instagramCredentials.accessToken);
+      // Sanitize token - remove ALL whitespace characters
+      const cleanToken = accessToken?.replace(/\s+/g, '').trim();
       const instagramAccountId = user.instagramCredentials.accountId;
 
-      if (!accessToken || !instagramAccountId) {
+      if (!cleanToken || !instagramAccountId) {
         this.activeGenerations.delete(userId);
         return res.status(400).json({
           success: false,
@@ -124,7 +131,7 @@ class AIPostController {
       // Initialize services with user's Gemini API key (same key for both content and images)
       await this.aiPostGenerator.initialize(geminiApiKey);
       this.imageGenerator.initialize(geminiApiKey);
-      this.instagramPublisher.initialize(accessToken, instagramAccountId);
+      this.instagramPublisher.initialize(cleanToken, instagramAccountId);
 
       // Step 1: Generate post content with personalized context
       console.log('[AIPostController] Generating post content...');
@@ -492,12 +499,18 @@ class AIPostController {
 
     try {
       const UserContext = require('../models/user-context.model');
+      const Post = require('../models/post.model');
+      
       const userContext = await UserContext.findOne({ userId });
+
+      // Get actual posts count from Post model
+      const actualPostsCount = await Post.countDocuments({ userId });
 
       if (!userContext) {
         return res.json({
           success: true,
           context: null,
+          totalPostsGenerated: actualPostsCount,
           message: 'No saved context found'
         });
       }
@@ -518,7 +531,7 @@ class AIPostController {
           postingGoals: userContext.postingGoals,
           callToActionPreference: userContext.callToActionPreference,
           additionalNotes: userContext.additionalNotes,
-          totalPostsGenerated: userContext.totalPostsGenerated,
+          totalPostsGenerated: actualPostsCount, // Use actual count from Post model
           lastUsed: userContext.lastUsed
         }
       });
@@ -558,9 +571,11 @@ class AIPostController {
       }
 
       const accessToken = this.encryptionService.decrypt(user.instagramCredentials.accessToken);
+      // Sanitize token - remove ALL whitespace characters
+      const cleanToken = accessToken?.replace(/\s+/g, '').trim();
       const instagramAccountId = user.instagramCredentials.accountId;
 
-      this.instagramPublisher.initialize(accessToken, instagramAccountId);
+      this.instagramPublisher.initialize(cleanToken, instagramAccountId);
       const limitInfo = await this.instagramPublisher.checkPublishingLimit();
 
       return res.json({
@@ -619,6 +634,138 @@ class AIPostController {
       return res.status(500).json({
         success: false,
         error: 'Failed to delete post'
+      });
+    }
+  }
+
+  /**
+   * Save and validate Gemini API key
+   */
+  async saveApiKey(req, res) {
+    const userId = req.user?.id;
+    
+    if (!userId) {
+      return res.status(401).json({
+        success: false,
+        error: 'User not authenticated'
+      });
+    }
+
+    try {
+      const { apiKey } = req.body;
+
+      if (!apiKey || typeof apiKey !== 'string') {
+        return res.status(400).json({
+          success: false,
+          error: 'API key is required'
+        });
+      }
+
+      // Validate API key format (Gemini keys start with "AIza")
+      if (!apiKey.startsWith('AIza')) {
+        return res.status(400).json({
+          success: false,
+          error: 'Invalid Gemini API key format. Keys should start with "AIza"'
+        });
+      }
+
+      // Validate API key by making a test request to list models
+      // This is a lightweight way to validate the key without generating content
+      try {
+        const axios = require('axios');
+        const response = await axios.get(
+          `https://generativelanguage.googleapis.com/v1beta/models?key=${apiKey}`,
+          { timeout: 10000 }
+        );
+        
+        if (response.data && response.data.models) {
+          console.log('[AIPostController] API key validated successfully');
+          console.log('[AIPostController] Available models:', response.data.models.length);
+        } else {
+          throw new Error('Invalid response from Gemini API');
+        }
+      } catch (validationError) {
+        console.error('[AIPostController] API key validation failed:', validationError.message);
+        
+        // Check if it's an authentication error
+        if (validationError.response?.status === 400 || validationError.response?.status === 403) {
+          return res.status(400).json({
+            success: false,
+            error: 'Invalid API key. Please check your key and try again.'
+          });
+        }
+        
+        return res.status(400).json({
+          success: false,
+          error: 'Failed to validate API key. Please try again.'
+        });
+      }
+
+      // Save API key to user
+      const User = require('../models/User');
+      const user = await User.findById(userId);
+
+      if (!user) {
+        return res.status(404).json({
+          success: false,
+          error: 'User not found'
+        });
+      }
+
+      user.geminiApiKey = apiKey;
+      await user.save();
+
+      console.log('[AIPostController] API key saved successfully for user:', userId);
+
+      return res.json({
+        success: true,
+        message: 'Gemini API key saved and validated successfully'
+      });
+    } catch (error) {
+      console.error('[AIPostController] Error saving API key:', error);
+      
+      return res.status(500).json({
+        success: false,
+        error: 'Failed to save API key'
+      });
+    }
+  }
+
+  /**
+   * Get API key configuration status
+   */
+  async getApiKeyStatus(req, res) {
+    const userId = req.user?.id;
+    
+    if (!userId) {
+      return res.status(401).json({
+        success: false,
+        error: 'User not authenticated'
+      });
+    }
+
+    try {
+      const User = require('../models/User');
+      const user = await User.findById(userId);
+
+      if (!user) {
+        return res.status(404).json({
+          success: false,
+          error: 'User not found'
+        });
+      }
+
+      return res.json({
+        success: true,
+        configured: !!user.geminiApiKey,
+        hasEnvKey: !!process.env.GEMINI_API_KEY
+      });
+    } catch (error) {
+      console.error('[AIPostController] Error getting API key status:', error);
+      
+      return res.status(500).json({
+        success: false,
+        error: 'Failed to get API key status'
       });
     }
   }

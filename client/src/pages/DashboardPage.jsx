@@ -1,74 +1,204 @@
 import { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
-import ConfigurationPanel from '../components/ConfigurationPanel';
-import AutomationControl from '../components/AutomationControl';
-import ActivityLog from '../components/ActivityLog';
+import { useNavigate, Link } from 'react-router-dom';
+import { motion, AnimatePresence } from 'framer-motion';
+import LoadingSpinner from '../components/LoadingSpinner';
+import { clearAuth } from '../utils/localStorage';
 import { useApp } from '../context/AppContext';
 
 const DashboardPage = () => {
   const navigate = useNavigate();
   const { toast } = useApp();
+  const [stats, setStats] = useState(null);
+  const [loading, setLoading] = useState(true);
   const [user, setUser] = useState(null);
-  const [activeTab, setActiveTab] = useState('config');
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
+  // Get user info
   useEffect(() => {
     const userData = localStorage.getItem('user');
-    if (userData && userData !== 'undefined') {
-      try {
-        setUser(JSON.parse(userData));
-      } catch (error) {
-        console.error('Failed to parse user data:', error);
-        localStorage.removeItem('user');
-      }
+    if (userData) {
+      setUser(JSON.parse(userData));
     }
   }, []);
 
+  // Handle logout
   const handleLogout = async () => {
     try {
       const token = localStorage.getItem('token');
       
-      await fetch('/api/auth/logout', {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${token}`
-        },
-        credentials: 'include'
-      });
+      if (token) {
+        await fetch('/api/auth/logout', {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${token}`
+          },
+          credentials: 'include'
+        });
+      }
 
-      localStorage.removeItem('token');
-      localStorage.removeItem('user');
+      clearAuth();
       toast.showSuccess('Logged out successfully');
       navigate('/login');
     } catch (error) {
       console.error('Logout error:', error);
-      // Still logout locally even if API call fails
-      localStorage.removeItem('token');
-      localStorage.removeItem('user');
+      clearAuth();
       navigate('/login');
     }
   };
 
-  return (
-    <div className="min-h-screen bg-gray-50">
-      {/* Header */}
-      <header className="bg-white shadow-sm border-b border-gray-200">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex justify-between items-center py-4">
-            {/* Logo and Title */}
-            <div className="flex-1">
-              <h1 className="text-xl sm:text-2xl font-bold text-gray-900">
-                Instagram Automation
-              </h1>
-              {user && (
-                <p className="text-xs sm:text-sm text-gray-600 mt-1 hidden sm:block">
-                  Welcome back, {user.name}
-                </p>
-              )}
-            </div>
+  // Fetch real stats
+  useEffect(() => {
+    const fetchStats = async () => {
+      try {
+        const token = localStorage.getItem('token');
+        const response = await fetch('/api/stats/dashboard', {
+          headers: {
+            'Authorization': `Bearer ${token}`
+          }
+        });
+        
+        if (response.ok) {
+          const data = await response.json();
+          setStats([
+            { label: 'Total Posts', value: data.totalPosts || '0', icon: '📝', color: 'from-blue-500 to-blue-600', change: data.postsChange || '+0%' },
+            { label: 'AI Generated', value: data.aiGenerated || '0', icon: '🤖', color: 'from-purple-500 to-purple-600', change: data.aiChange || '+0%' },
+            { label: 'Engagement', value: data.engagement || '0%', icon: '❤️', color: 'from-pink-500 to-pink-600', change: data.engagementChange || '+0%' },
+            { label: 'Active Users', value: data.activeUsers || '0', icon: '👥', color: 'from-green-500 to-green-600', change: data.usersChange || '+0%' },
+          ]);
+        } else {
+          // Fallback to default values
+          setStats([
+            { label: 'Total Posts', value: '0', icon: '📝', color: 'from-blue-500 to-blue-600', change: '+0%' },
+            { label: 'AI Generated', value: '0', icon: '🤖', color: 'from-purple-500 to-purple-600', change: '+0%' },
+            { label: 'Engagement', value: '0%', icon: '❤️', color: 'from-pink-500 to-pink-600', change: '+0%' },
+            { label: 'Active Users', value: '1', icon: '👥', color: 'from-green-500 to-green-600', change: '+0%' },
+          ]);
+        }
+      } catch (error) {
+        console.error('Error fetching stats:', error);
+        // Fallback to default values
+        setStats([
+          { label: 'Total Posts', value: '0', icon: '📝', color: 'from-blue-500 to-blue-600', change: '+0%' },
+          { label: 'AI Generated', value: '0', icon: '🤖', color: 'from-purple-500 to-purple-600', change: '+0%' },
+          { label: 'Engagement', value: '0%', icon: '❤️', color: 'from-pink-500 to-pink-600', change: '+0%' },
+          { label: 'Active Users', value: '1', icon: '👥', color: 'from-green-500 to-green-600', change: '+0%' },
+        ]);
+      } finally {
+        setLoading(false);
+      }
+    };
 
-            {/* Desktop User Info and Logout */}
-            <div className="hidden md:flex items-center space-x-4">
+    fetchStats();
+  }, []);
+
+  const quickActions = [
+    { 
+      title: 'Configuration', 
+      description: 'Manage Instagram settings', 
+      icon: '⚙️', 
+      color: 'from-blue-500 to-indigo-600',
+      action: () => navigate('/configuration')
+    },
+    { 
+      title: 'Automation Control', 
+      description: 'Start and stop automation', 
+      icon: '🤖', 
+      color: 'from-orange-500 to-red-600',
+      action: () => navigate('/automation')
+    },
+    { 
+      title: 'Activity Logs', 
+      description: 'View automation history', 
+      icon: '📋', 
+      color: 'from-gray-600 to-slate-700',
+      action: () => navigate('/logs')
+    },
+    { 
+      title: 'AI Post Generator', 
+      description: 'Create engaging content', 
+      icon: '✨', 
+      color: 'from-purple-500 to-pink-600',
+      action: () => navigate('/ai-post')
+    },
+    { 
+      title: 'Dual Publisher', 
+      description: 'Publish to multiple platforms', 
+      icon: '🎬', 
+      color: 'from-green-500 to-teal-600',
+      action: () => navigate('/dual-publish')
+    },
+    { 
+      title: 'API Configuration', 
+      description: 'Manage API keys and settings', 
+      icon: '🔑', 
+      color: 'from-cyan-500 to-blue-600',
+      action: () => navigate('/api-config')
+    },
+  ];
+
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-purple-50">
+        {/* Navbar */}
+        <nav className="bg-white/80 backdrop-blur-md shadow-sm fixed w-full z-50">
+          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div className="flex justify-between items-center h-16">
+              <div className="flex items-center">
+                <Link to="/dashboard" className="flex items-center space-x-3">
+                  <div className="w-10 h-10 bg-gray-900 rounded-xl flex items-center justify-center shadow-lg">
+                    <svg className="w-6 h-6" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                      <defs>
+                        <linearGradient id="lightning-gradient-nav" x1="0%" y1="0%" x2="100%" y2="100%">
+                          <stop offset="0%" style={{ stopColor: '#2563EB', stopOpacity: 1 }} />
+                          <stop offset="100%" style={{ stopColor: '#9333EA', stopOpacity: 1 }} />
+                        </linearGradient>
+                      </defs>
+                      <path d="M13 2L3 14h8l-1 8 10-12h-8l1-8z" fill="url(#lightning-gradient-nav)" stroke="url(#lightning-gradient-nav)" strokeWidth="1" strokeLinecap="round" strokeLinejoin="round"/>
+                    </svg>
+                  </div>
+                  <span className="text-xl font-bold bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent">
+                    AutoFlow
+                  </span>
+                </Link>
+              </div>
+            </div>
+          </div>
+        </nav>
+        <div className="pt-24 flex items-center justify-center min-h-[calc(100vh-96px)]">
+          <LoadingSpinner size="large" text="Loading dashboard..." />
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-purple-50">
+      {/* Dashboard Navbar */}
+      <nav className="bg-white/80 backdrop-blur-md shadow-sm fixed w-full z-50">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="flex justify-between items-center h-16">
+            {/* Logo */}
+            <div className="flex items-center">
+              <Link to="/dashboard" className="flex items-center space-x-3">
+                <div className="w-10 h-10 bg-gray-900 rounded-xl flex items-center justify-center shadow-lg">
+                  <svg className="w-6 h-6" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                    <defs>
+                      <linearGradient id="lightning-gradient-dashboard" x1="0%" y1="0%" x2="100%" y2="100%">
+                        <stop offset="0%" style={{ stopColor: '#2563EB', stopOpacity: 1 }} />
+                        <stop offset="100%" style={{ stopColor: '#9333EA', stopOpacity: 1 }} />
+                      </linearGradient>
+                    </defs>
+                    <path d="M13 2L3 14h8l-1 8 10-12h-8l1-8z" fill="url(#lightning-gradient-dashboard)" stroke="url(#lightning-gradient-dashboard)" strokeWidth="1" strokeLinecap="round" strokeLinejoin="round"/>
+                  </svg>
+                </div>
+                <span className="text-xl font-bold bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent">
+                  AutoFlow
+                </span>
+              </Link>
+            </div>
+            
+            {/* Desktop Menu */}
+            <div className="hidden md:flex items-center space-x-8">
               {user && (
                 <div className="text-right">
                   <p className="text-sm font-medium text-gray-900">{user.name}</p>
@@ -77,7 +207,7 @@ const DashboardPage = () => {
               )}
               <button
                 onClick={handleLogout}
-                className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition font-medium"
+                className="bg-gradient-to-r from-red-500 to-red-600 text-white px-6 py-2 rounded-full hover:shadow-lg transition transform hover:scale-105"
               >
                 Logout
               </button>
@@ -86,7 +216,7 @@ const DashboardPage = () => {
             {/* Mobile Menu Button */}
             <button
               onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
-              className="md:hidden p-2 rounded-lg text-gray-600 hover:bg-gray-100 transition"
+              className="md:hidden text-gray-700"
             >
               <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 {mobileMenuOpen ? (
@@ -100,116 +230,97 @@ const DashboardPage = () => {
 
           {/* Mobile Menu */}
           {mobileMenuOpen && (
-            <div className="md:hidden py-4 border-t border-gray-200">
+            <div className="md:hidden py-4 space-y-2 border-t border-gray-200">
               {user && (
-                <div className="mb-4 pb-4 border-b border-gray-200">
+                <div className="px-4 py-2">
                   <p className="text-sm font-medium text-gray-900">{user.name}</p>
                   <p className="text-xs text-gray-500">{user.email}</p>
                 </div>
               )}
               <button
                 onClick={handleLogout}
-                className="w-full px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition font-medium"
+                className="block w-full text-left px-4 py-2 text-gray-700 hover:bg-gray-100"
               >
                 Logout
               </button>
             </div>
           )}
         </div>
-      </header>
-
+      </nav>
+      
       {/* Main Content */}
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        {/* Tabs */}
-        <div className="mb-6">
-          <div className="border-b border-gray-200">
-            {/* Desktop Tabs */}
-            <nav className="hidden sm:flex -mb-px space-x-8">
-              <button
-                onClick={() => setActiveTab('config')}
-                className={`${
-                  activeTab === 'config'
-                    ? 'border-blue-500 text-blue-600'
-                    : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-                } whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm transition`}
-              >
-                Configuration
-              </button>
-              <button
-                onClick={() => setActiveTab('automation')}
-                className={`${
-                  activeTab === 'automation'
-                    ? 'border-blue-500 text-blue-600'
-                    : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-                } whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm transition`}
-              >
-                Automation
-              </button>
-              <button
-                onClick={() => setActiveTab('logs')}
-                className={`${
-                  activeTab === 'logs'
-                    ? 'border-blue-500 text-blue-600'
-                    : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-                } whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm transition`}
-              >
-                Logs
-              </button>
-              <button
-                onClick={() => navigate('/ai-post')}
-                className="whitespace-nowrap py-4 px-1 border-b-2 border-transparent text-purple-600 hover:text-purple-700 hover:border-purple-300 font-medium text-sm transition flex items-center gap-2"
-              >
-                <span>🤖</span> AI Post Generator
-              </button>
-            </nav>
+      <main className="pt-24 pb-12 px-4 sm:px-6 lg:px-8">
+        <div className="max-w-7xl mx-auto">
+          {/* Welcome Section */}
+          <motion.div
+            className="mb-8"
+            initial={{ opacity: 0, y: -20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.5 }}
+          >
+            <h1 className="text-3xl sm:text-4xl font-bold bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent mb-2">
+              Welcome Back! 👋
+            </h1>
+            <p className="text-gray-600">Here's what's happening with your automation today</p>
+          </motion.div>
 
-            {/* Mobile Tabs */}
-            <nav className="sm:hidden -mb-px flex overflow-x-auto">
-              <button
-                onClick={() => setActiveTab('config')}
-                className={`${
-                  activeTab === 'config'
-                    ? 'border-blue-500 text-blue-600'
-                    : 'border-transparent text-gray-500'
-                } flex-1 min-w-fit py-3 px-3 border-b-2 font-medium text-xs transition`}
+          {/* Stats Grid */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-6 mb-8">
+            {stats && stats.map((stat, index) => (
+              <motion.div
+                key={stat.label}
+                className="bg-white rounded-2xl p-6 shadow-lg hover:shadow-2xl transition-all duration-300 border border-gray-100"
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ 
+                  duration: 0.4,
+                  delay: index * 0.1,
+                  ease: "easeOut"
+                }}
+                whileHover={{ y: -5, scale: 1.02, transition: { duration: 0.2 } }}
               >
-                Config
-              </button>
-              <button
-                onClick={() => setActiveTab('automation')}
-                className={`${
-                  activeTab === 'automation'
-                    ? 'border-blue-500 text-blue-600'
-                    : 'border-transparent text-gray-500'
-                } flex-1 min-w-fit py-3 px-3 border-b-2 font-medium text-xs transition`}
-              >
-                Automation
-              </button>
-              <button
-                onClick={() => setActiveTab('logs')}
-                className={`${
-                  activeTab === 'logs'
-                    ? 'border-blue-500 text-blue-600'
-                    : 'border-transparent text-gray-500'
-                } flex-1 min-w-fit py-3 px-3 border-b-2 font-medium text-xs transition`}
-              >
-                Logs
-              </button>
-              <button
-                onClick={() => navigate('/ai-post')}
-                className="flex-1 min-w-fit py-3 px-3 border-b-2 border-transparent text-purple-600 font-medium text-xs transition"
-              >
-                🤖 AI Post
-              </button>
-            </nav>
+                <div className="flex items-start justify-between mb-4">
+                  <div className={`w-12 h-12 rounded-xl bg-gradient-to-br ${stat.color} flex items-center justify-center text-2xl shadow-lg`}>
+                    {stat.icon}
+                  </div>
+                  <span className={`text-sm font-semibold ${stat.change.startsWith('+') ? 'text-green-500' : 'text-gray-500'}`}>
+                    {stat.change}
+                  </span>
+                </div>
+                <h3 className="text-2xl sm:text-3xl font-bold text-gray-900 mb-1">{stat.value}</h3>
+                <p className="text-gray-600 text-sm">{stat.label}</p>
+              </motion.div>
+            ))}
           </div>
-        </div>
 
-        {/* Tab Content */}
-        <div className="space-y-6">
-          {activeTab === 'config' && <ConfigurationPanel />}
-          {activeTab === 'automation' && <AutomationControl />}
-          {activeTab === 'logs' && <ActivityLog />}
+          {/* Quick Actions */}
+          <div className="mb-8">
+            <h2 className="text-2xl font-bold text-gray-900 mb-4">Quick Actions</h2>
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-6">
+              {quickActions.map((action, index) => (
+                <motion.button
+                  key={action.title}
+                  onClick={action.action}
+                  className="bg-white rounded-2xl p-6 shadow-lg hover:shadow-2xl transition-all duration-300 text-left border border-gray-100 group"
+                  initial={{ opacity: 0, y: 20 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ 
+                    duration: 0.4,
+                    delay: 0.5 + index * 0.08,
+                    ease: "easeOut"
+                  }}
+                  whileHover={{ y: -5, scale: 1.02, transition: { duration: 0.2 } }}
+                  whileTap={{ scale: 0.98 }}
+                >
+                  <div className={`w-14 h-14 rounded-xl bg-gradient-to-br ${action.color} flex items-center justify-center text-3xl mb-4 shadow-lg group-hover:scale-110 transition-transform duration-300`}>
+                    {action.icon}
+                  </div>
+                  <h3 className="text-lg font-bold text-gray-900 mb-2">{action.title}</h3>
+                  <p className="text-gray-600 text-sm">{action.description}</p>
+                </motion.button>
+              ))}
+            </div>
+          </div>
         </div>
       </main>
     </div>

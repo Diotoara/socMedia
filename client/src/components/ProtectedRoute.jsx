@@ -25,8 +25,15 @@ const ProtectedRoute = ({ children }) => {
 
         if (response.ok) {
           const data = await response.json();
-          localStorage.setItem('user', JSON.stringify(data.user));
-          setIsAuthenticated(true);
+          if (data.user && typeof data.user === 'object') {
+            localStorage.setItem('user', JSON.stringify(data.user));
+            setIsAuthenticated(true);
+          } else {
+            console.error('Invalid user data received from API');
+            localStorage.removeItem('token');
+            localStorage.removeItem('user');
+            setIsAuthenticated(false);
+          }
         } else {
           // Token invalid or expired
           localStorage.removeItem('token');

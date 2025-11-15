@@ -22,6 +22,15 @@ FROM node:18-alpine
 
 WORKDIR /app
 
+# Install ffmpeg and required dependencies for video processing
+RUN apk add --no-cache \
+    ffmpeg \
+    ffmpeg-libs \
+    python3 \
+    py3-pip \
+    && ffmpeg -version \
+    && echo "FFmpeg installed successfully"
+
 # Install production dependencies (skip postinstall)
 COPY package*.json ./
 RUN npm install --production --ignore-scripts

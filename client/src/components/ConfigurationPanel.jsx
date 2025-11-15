@@ -1,270 +1,157 @@
 import { useState, useEffect } from 'react';
-import { configAPI } from '../utils/api';
-import { useApp } from '../context/AppContext';
+import axios from 'axios';
 
 const ConfigurationPanel = () => {
-  const { toast } = useApp();
-  
-  // API Mode: 'official' (recommended) or 'legacy' (deprecated)
-  const [apiMode, setApiMode] = useState('official');
-  
-  // Official API form data (new multi-tenant - RECOMMENDED)
-  const [officialFormData, setOfficialFormData] = useState({
-    accessToken: '',
-    accountId: '',
-    accountName: '',
-    replyTone: 'friendly',
-    geminiApiKey: ''
-  });
-  
   const [loading, setLoading] = useState(false);
-  const [hasOfficialConfig, setHasOfficialConfig] = useState(false);
-  const [validatingApiKey, setValidatingApiKey] = useState(false);
-  const [apiKeyValid, setApiKeyValid] = useState(null);
-  const [testingConnection, setTestingConnection] = useState(false);
-  const [connectionStatus, setConnectionStatus] = useState(null);
-  const [errors, setErrors] = useState({});
+  const [message, setMessage] = useState({ type: '', text: '' });
+  const [instagramStatus, setInstagramStatus] = useState({
+    connected: false,
+    accountName: null,
+    accountId: null
+  });
+  const [youtubeStatus, setYoutubeStatus] = useState({
+    connected: false,
+    channelName: null,
+    channelId: null
+  });
 
-  // Load existing configuration on mount
   useEffect(() => {
-    loadExistingConfig();
+    checkConnectionStatus();
+    
+    // Check for OAuth callback parameters
+    const urlParams = new URLSearchParams(window.location.search);
+    
+    if (urlParams.get('instagram') === 'success') {
+      const account = urlParams.get('account');
+      setMessage({ type: 'success', text: `✅ Instagram connected successfully! Account: @${account}` });
+      window.history.replaceState({}, '', '/dashboard');
+      setTimeout(() => {
+        checkConnectionStatus();
+        setMessage({ type: '', text: '' });
+      }, 3000);
+    } else if (urlParams.get('instagram') === 'error') {
+      const errorMsg = urlParams.get('message');
+      setMessage({ type: 'error', text: `❌ Instagram connection failed: ${errorMsg}` });
+      window.history.replaceState({}, '', '/dashboard');
+      setTimeout(() => setMessage({ type: '', text: '' }), 5000);
+    }
+    
+    if (urlParams.get('youtube') === 'success') {
+      const channel = urlParams.get('channel');
+      setMessage({ type: 'success', text: `✅ YouTube connected successfully! Channel: ${channel}` });
+      window.history.replaceState({}, '', '/dashboard');
+      setTimeout(() => {
+        checkConnectionStatus();
+        setMessage({ type: '', text: '' });
+      }, 3000);
+    } else if (urlParams.get('youtube') === 'error') {
+      const errorMsg = urlParams.get('message');
+      setMessage({ type: 'error', text: `❌ YouTube connection failed: ${errorMsg}` });
+      window.history.replaceState({}, '', '/dashboard');
+      setTimeout(() => setMessage({ type: '', text: '' }), 5000);
+    }
   }, []);
 
-  const loadExistingConfig = async () => {
+  const checkConnectionStatus = async () => {
     try {
-      // Check for official API credentials
-      const credentialsResponse = await fetch('/api/credentials');
-      if (credentialsResponse.ok) {
-        const credentialsData = await credentialsResponse.json();
-        const instagramPlatform = credentialsData.platforms?.find(p => p.platform === 'instagram');
+      const token = localStorage.getItem('token');
+      const response = await axios.get('/api/credentials', {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+
+      if (response.data.success) {
+        const { instagram, youtube } = response.data.credentials;
         
-        if (instagramPlatform) {
-          setHasOfficialConfig(true);
-          setOfficialFormData(prev => ({
-            ...prev,
-            accountId: instagramPlatform.accountId || '',
-            accountName: instagramPlatform.accountName || ''
-          }));
-        }
-      }
-      
-      // Load reply tone
-      const toneResponse = await configAPI.getTone();
-      setOfficialFormData(prev => ({
-        ...prev,
-        replyTone: toneResponse.data.tone || 'friendly'
-      }));
-    } catch (error) {
-      console.log('No existing configuration found');
-    }
-  };
-
-  const handleOfficialInputChange = (e) => {
-    const { name, value } = e.target;
-    setOfficialFormData(prev => ({
-      ...prev,
-      [name]: value
-    }));
-    
-    // Clear error for this field
-    if (errors[name]) {
-      setErrors(prev => ({
-        ...prev,
-        [name]: null
-      }));
-    }
-    
-    // Reset validations
-    if (name === 'geminiApiKey') {
-      setApiKeyValid(null);
-    }
-    if (name === 'accessToken' || name === 'accountId') {
-      setConnectionStatus(null);
-    }
-  };
-
-  const validateApiKeyFormat = (apiKey) => {
-    if (!apiKey || !apiKey.trim()) {
-      return 'API key is required';
-    }
-    
-    const trimmed = apiKey.trim();
-    
-    if (!trimmed.startsWith('AIza')) {
-      return 'Invalid API key format. Keys should start with "AIza"';
-    }
-    
-    if (trimmed.length < 30) {
-      return 'API key appears to be too short';
-    }
-    
-    return null;
-  };
-
-  const handleValidateApiKey = async () => {
-    const formatError = validateApiKeyFormat(officialFormData.geminiApiKey);
-    if (formatError) {
-      setErrors(prev => ({ ...prev, geminiApiKey: formatError }));
-      toast.showError(formatError);
-      return;
-    }
-
-    setValidatingApiKey(true);
-    setApiKeyValid(null);
-
-    try {
-      await configAPI.validateApiKey(officialFormData.geminiApiKey.trim());
-      setApiKeyValid(true);
-      toast.showSuccess('API key is valid!');
-    } catch (error) {
-      setApiKeyValid(false);
-      const errorMsg = error.message || 'Invalid API key';
-      setErrors(prev => ({ ...prev, geminiApiKey: errorMsg }));
-      toast.showError(errorMsg);
-    } finally {
-      setValidatingApiKey(false);
-    }
-  };
-
-  const handleTestConnection = async () => {
-    if (!officialFormData.accessToken || !officialFormData.accountId) {
-      toast.showError('Please enter access token and account ID first');
-      return;
-    }
-
-    setTestingConnection(true);
-    setConnectionStatus(null);
-
-    try {
-      // First save the credentials
-      await fetch('/api/credentials/instagram', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          accessToken: officialFormData.accessToken.trim(),
-          accountId: officialFormData.accountId.trim(),
-          accountName: officialFormData.accountName.trim()
-        })
-      });
-
-      // Then test the connection
-      const testResponse = await fetch('/api/credentials/instagram/test', {
-        method: 'POST'
-      });
-
-      const testData = await testResponse.json();
-
-      if (testData.success) {
-        setConnectionStatus({
-          success: true,
-          accountInfo: testData.accountInfo
+        setInstagramStatus({
+          connected: instagram?.configured || false,
+          accountName: instagram?.accountName || null,
+          accountId: instagram?.accountId || null
         });
-        toast.showSuccess('Connection successful!');
-      } else {
-        setConnectionStatus({
-          success: false,
-          error: testData.error || 'Connection failed'
+
+        setYoutubeStatus({
+          connected: youtube?.configured || false,
+          channelName: youtube?.channelName || null,
+          channelId: youtube?.channelId || null
         });
-        toast.showError(testData.error || 'Connection failed');
       }
     } catch (error) {
-      setConnectionStatus({
-        success: false,
-        error: error.message
-      });
-      toast.showError(error.message || 'Failed to test connection');
-    } finally {
-      setTestingConnection(false);
+      console.error('Error checking connection status:', error);
     }
   };
 
-  const handleOfficialSubmit = async (e) => {
-    e.preventDefault();
-    
-    // Validate required fields
-    const newErrors = {};
-    if (!officialFormData.accessToken.trim()) {
-      newErrors.accessToken = 'Access token is required';
-    }
-    if (!officialFormData.accountId.trim()) {
-      newErrors.accountId = 'Account ID is required';
-    }
-    if (!officialFormData.geminiApiKey.trim()) {
-      newErrors.geminiApiKey = 'Gemini API key is required';
-    }
-
-    if (Object.keys(newErrors).length > 0) {
-      setErrors(newErrors);
-      toast.showError('Please fill in all required fields');
-      return;
-    }
-
+  const handleInstagramLogin = async () => {
     setLoading(true);
-
     try {
-      // Save Instagram credentials
-      await fetch('/api/credentials/instagram', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          accessToken: officialFormData.accessToken.trim(),
-          accountId: officialFormData.accountId.trim(),
-          accountName: officialFormData.accountName.trim()
-        })
+      const token = localStorage.getItem('token');
+      const response = await axios.get('/api/oauth/instagram/auth-url', {
+        headers: { Authorization: `Bearer ${token}` }
       });
 
-      // Save reply tone
-      await configAPI.saveTone(officialFormData.replyTone);
-
-      toast.showSuccess('Configuration saved successfully!');
-      setHasOfficialConfig(true);
-      
-      // Clear sensitive fields
-      setOfficialFormData(prev => ({
-        ...prev,
-        accessToken: '',
-        geminiApiKey: ''
-      }));
-      
-      setErrors({});
-      setApiKeyValid(null);
-      setConnectionStatus(null);
-      
-      // Reload config
-      await loadExistingConfig();
+      if (response.data.success) {
+        // Redirect to Instagram OAuth
+        window.location.href = response.data.authUrl;
+      } else {
+        setMessage({ type: 'error', text: response.data.error || 'Failed to get authorization URL' });
+        setLoading(false);
+      }
     } catch (error) {
-      toast.showError(error.message || 'Failed to save configuration');
-    } finally {
+      const errorMsg = error.response?.data?.error || 'Failed to initiate Instagram login';
+      
+      // Check if error is due to missing OAuth config
+      if (errorMsg.includes('not configured') || errorMsg.includes('INSTAGRAM_CLIENT_ID')) {
+        setMessage({ type: 'error', text: 'Instagram OAuth not configured. Please contact your administrator.' });
+      } else {
+        setMessage({ type: 'error', text: errorMsg });
+      }
       setLoading(false);
     }
   };
 
-  const handleClearConfig = async () => {
-    if (!window.confirm('Are you sure you want to clear your Instagram credentials?')) {
+  const handleYouTubeLogin = async () => {
+    setLoading(true);
+    try {
+      const token = localStorage.getItem('token');
+      const response = await axios.get('/api/oauth/youtube/auth-url', {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+
+      if (response.data.success) {
+        // Redirect to YouTube OAuth
+        window.location.href = response.data.authUrl;
+      } else {
+        setMessage({ type: 'error', text: response.data.error || 'Failed to get authorization URL' });
+        setLoading(false);
+      }
+    } catch (error) {
+      const errorMsg = error.response?.data?.error || 'Failed to initiate YouTube login';
+      
+      // Check if error is due to missing OAuth config
+      if (errorMsg.includes('not configured') || errorMsg.includes('YOUTUBE_CLIENT_ID')) {
+        setMessage({ type: 'error', text: 'YouTube OAuth not configured. Please contact your administrator.' });
+      } else {
+        setMessage({ type: 'error', text: errorMsg });
+      }
+      setLoading(false);
+    }
+  };
+
+  const handleDisconnect = async (platform) => {
+    if (!window.confirm(`Are you sure you want to disconnect ${platform}?`)) {
       return;
     }
 
     setLoading(true);
-
     try {
-      await fetch('/api/credentials/instagram', {
-        method: 'DELETE'
+      const token = localStorage.getItem('token');
+      await axios.delete(`/api/credentials/${platform}`, {
+        headers: { Authorization: `Bearer ${token}` }
       });
-      
-      setOfficialFormData({
-        accessToken: '',
-        accountId: '',
-        accountName: '',
-        replyTone: 'friendly',
-        geminiApiKey: ''
-      });
-      setHasOfficialConfig(false);
-      setConnectionStatus(null);
-      setApiKeyValid(null);
-      setErrors({});
-      toast.showSuccess('Configuration cleared successfully!');
+
+      setMessage({ type: 'success', text: `${platform} disconnected successfully` });
+      await checkConnectionStatus();
+      setTimeout(() => setMessage({ type: '', text: '' }), 3000);
     } catch (error) {
-      toast.showError(error.message || 'Failed to clear configuration');
+      setMessage({ type: 'error', text: error.response?.data?.error || `Failed to disconnect ${platform}` });
     } finally {
       setLoading(false);
     }
@@ -272,265 +159,204 @@ const ConfigurationPanel = () => {
 
   return (
     <div className="bg-white rounded-lg shadow-md p-6">
-      <div className="flex items-center justify-between mb-6">
-        <h2 className="text-2xl font-bold text-gray-800">Configuration</h2>
-        {hasOfficialConfig && (
-          <span className="px-3 py-1 bg-green-100 text-green-800 text-sm font-medium rounded-full">
-            ✓ Connected
-          </span>
-        )}
+      <div className="mb-6">
+        <h2 className="text-2xl font-bold text-gray-800 mb-2">Platform Connections</h2>
+        <p className="text-sm text-gray-600">
+          Connect your social media accounts to start publishing content
+        </p>
       </div>
 
-      {/* Info about NEW Instagram API */}
-      <div className="mb-6 p-4 bg-blue-50 border border-blue-200 rounded-lg">
-        <div className="flex items-start">
-          <svg className="w-5 h-5 text-blue-600 mt-0.5 mr-3" fill="currentColor" viewBox="0 0 20 20">
-            <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" />
-          </svg>
-          <div>
-            <h3 className="text-sm font-medium text-blue-800">⚠️ Important: New API Scopes Required</h3>
-            <p className="mt-1 text-sm text-blue-700">
-              When generating your access token, use these <strong>new scope names</strong> (required after Jan 27, 2025):
-            </p>
-            <ul className="mt-2 text-xs text-blue-600 space-y-1 ml-4 list-disc">
-              <li><code className="bg-blue-100 px-1 rounded">instagram_business_basic</code></li>
-              <li><code className="bg-blue-100 px-1 rounded">instagram_business_manage_comments</code></li>
-            </ul>
-            <p className="mt-2 text-xs text-blue-600">
-              See <strong>INSTAGRAM_API_SETUP.md</strong> for complete setup instructions.
-            </p>
-          </div>
+      {/* Inline Message */}
+      {message.text && (
+        <div className={`mb-6 p-4 rounded-lg ${
+          message.type === 'success' 
+            ? 'bg-green-50 text-green-800 border border-green-200' 
+            : 'bg-red-50 text-red-800 border border-red-200'
+        }`}>
+          {message.text}
         </div>
-      </div>
+      )}
 
-      <form onSubmit={handleOfficialSubmit} className="space-y-6">
-        {/* Instagram Official API Section */}
-        <div className="space-y-4">
-          <h3 className="text-lg font-semibold text-gray-700">Instagram Business Account</h3>
-          
-          <div>
-            <label htmlFor="accessToken" className="block text-sm font-medium text-gray-700 mb-2">
-              Access Token *
-            </label>
-            <textarea
-              id="accessToken"
-              name="accessToken"
-              value={officialFormData.accessToken}
-              onChange={handleOfficialInputChange}
-              rows={3}
-              className={`w-full px-4 py-2 border rounded-md focus:ring-2 focus:border-transparent outline-none transition font-mono text-sm ${
-                errors.accessToken 
-                  ? 'border-red-500 focus:ring-red-500' 
-                  : connectionStatus?.success
-                  ? 'border-green-500 focus:ring-green-500'
-                  : 'border-gray-300 focus:ring-blue-500'
-              }`}
-              placeholder="Your Instagram long-lived access token"
-              required
-            />
-            {errors.accessToken && (
-              <p className="mt-1 text-sm text-red-600">{errors.accessToken}</p>
-            )}
-            <p className="mt-1 text-xs text-gray-500">
-              Generate token: <code className="bg-gray-100 px-1 rounded">node server/utils/instagram-oauth-helper.js</code>
-            </p>
-          </div>
-
-          <div>
-            <label htmlFor="accountId" className="block text-sm font-medium text-gray-700 mb-2">
-              Instagram Account ID *
-            </label>
-            <input
-              type="text"
-              id="accountId"
-              name="accountId"
-              value={officialFormData.accountId}
-              onChange={handleOfficialInputChange}
-              className={`w-full px-4 py-2 border rounded-md focus:ring-2 focus:border-transparent outline-none transition ${
-                errors.accountId 
-                  ? 'border-red-500 focus:ring-red-500' 
-                  : 'border-gray-300 focus:ring-blue-500'
-              }`}
-              placeholder="Your Instagram Business Account ID"
-              required
-            />
-            {errors.accountId && (
-              <p className="mt-1 text-sm text-red-600">{errors.accountId}</p>
-            )}
-          </div>
-
-          <div>
-            <label htmlFor="accountName" className="block text-sm font-medium text-gray-700 mb-2">
-              Account Name (Optional)
-            </label>
-            <input
-              type="text"
-              id="accountName"
-              name="accountName"
-              value={officialFormData.accountName}
-              onChange={handleOfficialInputChange}
-              className="w-full px-4 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition"
-              placeholder="@your_instagram_username"
-            />
-            <p className="mt-1 text-xs text-gray-500">
-              For display purposes only
-            </p>
-          </div>
-
-          {/* Test Connection Button */}
-          <button
-            type="button"
-            onClick={handleTestConnection}
-            disabled={testingConnection || !officialFormData.accessToken || !officialFormData.accountId}
-            className="w-full px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed transition font-medium"
-          >
-            {testingConnection ? 'Testing Connection...' : 'Test Connection'}
-          </button>
-
-          {/* Connection Status */}
-          {connectionStatus && (
-            <div className={`p-4 rounded-md ${
-              connectionStatus.success ? 'bg-green-50 border border-green-200' : 'bg-red-50 border border-red-200'
-            }`}>
-              <h4 className={`font-medium ${connectionStatus.success ? 'text-green-800' : 'text-red-800'}`}>
-                {connectionStatus.success ? '✓ Connection Successful' : '✗ Connection Failed'}
-              </h4>
-              {connectionStatus.accountInfo && (
-                <div className="mt-2 text-sm text-green-700">
-                  <p>Username: @{connectionStatus.accountInfo.username}</p>
-                  <p>Name: {connectionStatus.accountInfo.name}</p>
-                  <p>Followers: {connectionStatus.accountInfo.followersCount?.toLocaleString()}</p>
-                </div>
-              )}
-              {connectionStatus.error && (
-                <p className="mt-2 text-sm text-red-700">{connectionStatus.error}</p>
-              )}
+      <div className="space-y-6">
+        {/* Instagram Connection */}
+        <div className="border border-gray-200 rounded-lg p-6">
+          <div className="flex items-start justify-between mb-4">
+            <div className="flex items-center space-x-3">
+              <div className="w-12 h-12 bg-gradient-to-br from-purple-500 via-pink-500 to-orange-500 rounded-lg flex items-center justify-center">
+                <span className="text-2xl">📸</span>
+              </div>
+              <div>
+                <h3 className="text-lg font-semibold text-gray-900">Instagram</h3>
+                <p className="text-sm text-gray-500">Connect your Instagram Business account</p>
+              </div>
             </div>
-          )}
-        </div>
-
-        {/* Reply Tone Section */}
-        <div className="space-y-4">
-          <h3 className="text-lg font-semibold text-gray-700">Reply Tone</h3>
-          
-          <div className="space-y-2">
-            {['friendly', 'formal', 'professional'].map((tone) => (
-              <label key={tone} className="flex items-center space-x-3 p-3 border border-gray-300 rounded-md hover:bg-gray-50 cursor-pointer transition">
-                <input
-                  type="radio"
-                  name="replyTone"
-                  value={tone}
-                  checked={officialFormData.replyTone === tone}
-                  onChange={handleOfficialInputChange}
-                  className="w-4 h-4 text-blue-600 focus:ring-blue-500"
-                />
-                <div>
-                  <span className="font-medium text-gray-900 capitalize">{tone}</span>
-                  <p className="text-sm text-gray-500">
-                    {tone === 'friendly' && 'Casual and approachable responses'}
-                    {tone === 'formal' && 'Polite and professional responses'}
-                    {tone === 'professional' && 'Business-focused corporate responses'}
-                  </p>
-                </div>
-              </label>
-            ))}
+            {instagramStatus.connected && (
+              <span className="px-3 py-1 bg-green-100 text-green-800 text-xs font-medium rounded-full">
+                ✓ Connected
+              </span>
+            )}
           </div>
-        </div>
 
-        {/* Gemini API Key Section */}
-        <div className="space-y-4">
-          <h3 className="text-lg font-semibold text-gray-700">AI Configuration</h3>
-          
-          <div>
-            <label htmlFor="geminiApiKey" className="block text-sm font-medium text-gray-700 mb-2">
-              Gemini API Key *
-            </label>
-            <div className="flex gap-2">
-              <input
-                type="password"
-                id="geminiApiKey"
-                name="geminiApiKey"
-                value={officialFormData.geminiApiKey}
-                onChange={handleOfficialInputChange}
-                className={`flex-1 px-4 py-2 border rounded-md focus:ring-2 focus:border-transparent outline-none transition ${
-                  errors.geminiApiKey 
-                    ? 'border-red-500 focus:ring-red-500' 
-                    : apiKeyValid === true
-                    ? 'border-green-500 focus:ring-green-500'
-                    : 'border-gray-300 focus:ring-blue-500'
-                }`}
-                placeholder="AIza..."
-                required
-              />
+          {instagramStatus.connected ? (
+            <div className="space-y-4">
+              <div className="bg-gray-50 rounded-md p-4">
+                <p className="text-sm text-gray-600 mb-1">Account</p>
+                <p className="font-medium text-gray-900">
+                  @{instagramStatus.accountName || 'Instagram Account'}
+                </p>
+                {instagramStatus.accountId && (
+                  <p className="text-xs text-gray-500 mt-1">ID: {instagramStatus.accountId}</p>
+                )}
+              </div>
+              <div className="flex gap-3">
+                <button
+                  onClick={handleInstagramLogin}
+                  disabled={loading}
+                  className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition font-medium"
+                >
+                  Reconnect
+                </button>
+                <button
+                  onClick={() => handleDisconnect('instagram')}
+                  disabled={loading}
+                  className="px-4 py-2 border border-red-300 text-red-700 rounded-md hover:bg-red-50 disabled:opacity-50 disabled:cursor-not-allowed transition font-medium"
+                >
+                  Disconnect
+                </button>
+              </div>
+            </div>
+          ) : (
+            <div className="space-y-4">
+              <div className="bg-blue-50 border border-blue-200 rounded-md p-4">
+                <p className="text-sm text-blue-800 mb-2">
+                  Click below to connect your Instagram Business account via OAuth. You'll be redirected to Facebook to authorize access.
+                </p>
+                <p className="text-xs text-blue-700 font-medium mb-1">Required Permissions:</p>
+                <ul className="text-xs text-blue-600 space-y-0.5 ml-4">
+                  <li>• Read profile & media</li>
+                  <li>• Publish posts (images/videos)</li>
+                  <li>• Read & reply to comments</li>
+                  <li>• Manage page metadata</li>
+                </ul>
+              </div>
               <button
-                type="button"
-                onClick={handleValidateApiKey}
-                disabled={validatingApiKey || !officialFormData.geminiApiKey.trim()}
-                className="px-4 py-2 bg-gray-600 text-white rounded-md hover:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-gray-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed transition font-medium"
+                onClick={handleInstagramLogin}
+                disabled={loading}
+                className="w-full px-6 py-3 bg-gradient-to-r from-purple-600 to-pink-600 text-white rounded-md hover:from-purple-700 hover:to-pink-700 disabled:opacity-50 disabled:cursor-not-allowed transition font-medium text-lg"
               >
-                {validatingApiKey ? 'Validating...' : 'Validate'}
+                {loading ? 'Connecting...' : 'Login with Instagram'}
               </button>
             </div>
-            {errors.geminiApiKey && (
-              <p className="mt-1 text-sm text-red-600">{errors.geminiApiKey}</p>
-            )}
-            {apiKeyValid === true && !errors.geminiApiKey && (
-              <p className="mt-1 text-sm text-green-600">✓ API key is valid</p>
-            )}
-            <p className="mt-1 text-xs text-gray-500">
-              Get your free API key from{' '}
-              <a 
-                href="https://makersuite.google.com/app/apikey" 
-                target="_blank" 
-                rel="noopener noreferrer"
-                className="text-blue-600 hover:underline"
-              >
-                Google AI Studio
-              </a>
-            </p>
-          </div>
-        </div>
-
-        {/* Action Buttons */}
-        <div className="flex gap-4 pt-4">
-          <button
-            type="submit"
-            disabled={loading}
-            className="flex-1 bg-blue-600 text-white py-2 px-4 rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed transition font-medium"
-          >
-            {loading ? 'Saving...' : hasOfficialConfig ? 'Update Configuration' : 'Save Configuration'}
-          </button>
-          
-          {hasOfficialConfig && (
-            <button
-              type="button"
-              onClick={handleClearConfig}
-              disabled={loading}
-              className="px-6 py-2 border border-red-300 text-red-700 rounded-md hover:bg-red-50 focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed transition font-medium"
-            >
-              Clear
-            </button>
           )}
         </div>
-      </form>
 
-      {/* Help Section */}
-      <div className="mt-6 p-4 bg-blue-50 border border-blue-200 rounded-lg">
-        <h4 className="text-sm font-medium text-blue-900 mb-2">🎉 NEW: No Facebook Page Required!</h4>
-        <p className="text-sm text-blue-700 mb-3">
-          We're using the latest Instagram API (2024) that doesn't require a Facebook Page connection.
-        </p>
-        <h5 className="text-sm font-medium text-blue-900 mb-2">Setup Steps:</h5>
-        <ol className="text-sm text-blue-700 list-decimal list-inside space-y-1">
-          <li>Create a Meta App at <a href="https://developers.facebook.com/apps" target="_blank" rel="noopener noreferrer" className="underline">developers.facebook.com/apps</a></li>
-          <li>Add <strong>"Instagram API with Instagram Login"</strong> product (NEW!)</li>
-          <li>Run: <code className="bg-blue-100 px-1 rounded">node server/utils/instagram-oauth-helper.js</code></li>
-          <li>Follow the OAuth flow to get your access token</li>
-          <li>Paste the credentials here and test the connection</li>
-        </ol>
-        <p className="text-xs text-blue-600 mt-2">
-          ℹ️ Make sure you have an Instagram Business or Creator account (not personal)
-        </p>
+        {/* YouTube Connection */}
+        <div className="border border-gray-200 rounded-lg p-6">
+          <div className="flex items-start justify-between mb-4">
+            <div className="flex items-center space-x-3">
+              <div className="w-12 h-12 bg-red-600 rounded-lg flex items-center justify-center">
+                <span className="text-2xl">🎬</span>
+              </div>
+              <div>
+                <h3 className="text-lg font-semibold text-gray-900">YouTube</h3>
+                <p className="text-sm text-gray-500">Connect your YouTube channel</p>
+              </div>
+            </div>
+            {youtubeStatus.connected && (
+              <span className="px-3 py-1 bg-green-100 text-green-800 text-xs font-medium rounded-full">
+                ✓ Connected
+              </span>
+            )}
+          </div>
+
+          {youtubeStatus.connected ? (
+            <div className="space-y-4">
+              <div className="bg-gray-50 rounded-md p-4">
+                <p className="text-sm text-gray-600 mb-1">Channel</p>
+                <p className="font-medium text-gray-900">
+                  {youtubeStatus.channelName || 'YouTube Channel'}
+                </p>
+                {youtubeStatus.channelId && (
+                  <p className="text-xs text-gray-500 mt-1">ID: {youtubeStatus.channelId}</p>
+                )}
+              </div>
+              <div className="flex gap-3">
+                <button
+                  onClick={handleYouTubeLogin}
+                  disabled={loading}
+                  className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition font-medium"
+                >
+                  Reconnect
+                </button>
+                <button
+                  onClick={() => handleDisconnect('youtube')}
+                  disabled={loading}
+                  className="px-4 py-2 border border-red-300 text-red-700 rounded-md hover:bg-red-50 disabled:opacity-50 disabled:cursor-not-allowed transition font-medium"
+                >
+                  Disconnect
+                </button>
+              </div>
+            </div>
+          ) : (
+            <div className="space-y-4">
+              <div className="bg-red-50 border border-red-200 rounded-md p-4">
+                <p className="text-sm text-red-800 mb-2">
+                  Click below to connect your YouTube channel via OAuth. You'll be redirected to Google to authorize access.
+                </p>
+                <p className="text-xs text-red-700 font-medium mb-1">Required Permissions:</p>
+                <ul className="text-xs text-red-600 space-y-0.5 ml-4">
+                  <li>• Upload videos</li>
+                  <li>• Read channel data</li>
+                  <li>• Manage comments</li>
+                  <li>• Full channel management</li>
+                </ul>
+              </div>
+              <button
+                onClick={handleYouTubeLogin}
+                disabled={loading}
+                className="w-full px-6 py-3 bg-red-600 text-white rounded-md hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed transition font-medium text-lg"
+              >
+                {loading ? 'Connecting...' : 'Login with YouTube'}
+              </button>
+            </div>
+          )}
+        </div>
+
+        {/* Info Section */}
+        <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+          <div className="flex items-start">
+            <svg className="w-5 h-5 text-blue-600 mt-0.5 mr-3 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
+              <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" />
+            </svg>
+            <div>
+              <h4 className="text-sm font-medium text-blue-900 mb-2">🔐 How to Connect (Easy 2-Step Process)</h4>
+              
+              <div className="bg-white rounded p-3 border border-blue-200 mb-3">
+                <p className="text-sm font-semibold text-blue-900 mb-2">Step 1: First Time Setup (5 min - Once Only)</p>
+                <ol className="text-xs text-blue-700 space-y-1 list-decimal list-inside ml-2">
+                  <li>Click "Login with Instagram/YouTube" button</li>
+                  <li>You'll be redirected to setup page with instructions</li>
+                  <li>Create your OAuth app (we guide you step-by-step)</li>
+                  <li>Copy & paste Client ID and Secret into our form</li>
+                  <li>Click "Save" - Done!</li>
+                </ol>
+              </div>
+
+              <div className="bg-white rounded p-3 border border-blue-200">
+                <p className="text-sm font-semibold text-blue-900 mb-2">Step 2: Connect Account (30 sec)</p>
+                <ul className="text-xs text-blue-700 space-y-1 ml-2">
+                  <li>• Click "Connect Instagram/YouTube"</li>
+                  <li>• Login and approve permissions</li>
+                  <li>• Automatically connected!</li>
+                </ul>
+              </div>
+
+              <p className="text-xs text-blue-600 mt-3">
+                ℹ️ You only do Step 1 once. After that, it's automatic! All credentials encrypted and stored securely.
+              </p>
+            </div>
+          </div>
+        </div>
       </div>
     </div>
   );

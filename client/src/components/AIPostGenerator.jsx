@@ -22,6 +22,12 @@ export default function AIPostGenerator() {
   const [generatedPost, setGeneratedPost] = useState(null);
   const [postHistory, setPostHistory] = useState([]);
   const [publishingLimit, setPublishingLimit] = useState(null);
+  
+  // API Key configuration
+  const [showApiKeyModal, setShowApiKeyModal] = useState(false);
+  const [apiKey, setApiKey] = useState('');
+  const [isApiKeyConfigured, setIsApiKeyConfigured] = useState(false);
+  const [isSavingApiKey, setIsSavingApiKey] = useState(false);
 
   // Get user ID from token or API
   useEffect(() => {
@@ -47,7 +53,19 @@ export default function AIPostGenerator() {
     fetchUserContext();
     fetchPostHistory();
     fetchPublishingLimit();
+    fetchApiKeyStatus();
   }, []);
+
+  const fetchApiKeyStatus = async () => {
+    try {
+      const response = await aiPostAPI.getApiKeyStatus();
+      if (response.data.success) {
+        setIsApiKeyConfigured(response.data.configured || response.data.hasEnvKey);
+      }
+    } catch (error) {
+      console.error('Failed to fetch API key status:', error);
+    }
+  };
 
   const fetchUserContext = async () => {
     try {
@@ -125,8 +143,40 @@ export default function AIPostGenerator() {
     }
   };
 
+  const handleSaveApiKey = async () => {
+    if (!apiKey || !apiKey.trim()) {
+      showError('Please enter your Gemini API key');
+      return;
+    }
+
+    setIsSavingApiKey(true);
+
+    try {
+      const response = await aiPostAPI.saveApiKey(apiKey.trim());
+      
+      if (response.data.success) {
+        setIsApiKeyConfigured(true);
+        setShowApiKeyModal(false);
+        setApiKey('');
+        showSuccess('Gemini API key saved and validated successfully!');
+      }
+    } catch (error) {
+      console.error('Failed to save API key:', error);
+      showError(error.response?.data?.error || 'Failed to save API key');
+    } finally {
+      setIsSavingApiKey(false);
+    }
+  };
+
   const handleGeneratePost = async (e) => {
     e.preventDefault();
+
+    // Check if API key is configured
+    if (!isApiKeyConfigured) {
+      showError('Please configure your Gemini API key first');
+      setShowApiKeyModal(true);
+      return;
+    }
 
     // Validation
     if (!formData.accountType || !formData.targetAudience || !formData.brandVoice) {
@@ -198,25 +248,6 @@ export default function AIPostGenerator() {
 
   return (
     <div className="ai-post-generator">
-      {/* Debug Info */}
-      {process.env.NODE_ENV === 'development' && (
-        <div style={{ 
-          position: 'fixed', 
-          top: 10, 
-          left: 10, 
-          background: 'black', 
-          color: 'white', 
-          padding: '10px', 
-          fontSize: '12px',
-          zIndex: 9999,
-          borderRadius: '4px'
-        }}>
-          <div>User ID: {userId || 'Not loaded'}</div>
-          <div>Generating: {isGenerating ? 'Yes' : 'No'}</div>
-          <div>Socket.IO: Check console</div>
-        </div>
-      )}
-
       {/* Real-time Progress Indicator */}
       {userId && (
         <PostGenerationProgress
@@ -230,6 +261,39 @@ export default function AIPostGenerator() {
         <h2>🤖 AI Post Generator</h2>
         <p>Automatically generate and publish Instagram posts with AI</p>
       </div>
+
+      {/* API Key Configuration Banner */}
+      {!isApiKeyConfigured && (
+        <div className="api-key-banner">
+          <div className="banner-content">
+            <div className="banner-icon">🔑</div>
+            <div className="banner-text">
+              <h3>Gemini API Key Required</h3>
+              <p>Configure your Gemini API key to start generating AI posts</p>
+            </div>
+            <button
+              onClick={() => setShowApiKeyModal(true)}
+              className="btn-configure"
+            >
+              Configure API Key
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* API Key Status */}
+      {isApiKeyConfigured && (
+        <div className="api-key-status">
+          <span className="status-icon">✅</span>
+          <span>Gemini API Key Configured</span>
+          <button
+            onClick={() => setShowApiKeyModal(true)}
+            className="btn-update-key"
+          >
+            Update Key
+          </button>
+        </div>
+      )}
 
       {/* Publishing Limit Info */}
       {publishingLimit && (
@@ -831,7 +895,276 @@ export default function AIPostGenerator() {
           font-size: 12px;
           color: #999;
         }
+
+        /* API Key Modal Styles */
+        .api-key-modal-overlay {
+          position: fixed;
+          top: 0;
+          left: 0;
+          right: 0;
+          bottom: 0;
+          background: rgba(0, 0, 0, 0.5);
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          z-index: 1000;
+        }
+
+        .api-key-modal {
+          background: white;
+          border-radius: 12px;
+          padding: 30px;
+          max-width: 500px;
+          width: 90%;
+          box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15);
+        }
+
+        .modal-header {
+          margin-bottom: 20px;
+        }
+
+        .modal-header h3 {
+          margin: 0 0 10px 0;
+          font-size: 24px;
+          color: #333;
+        }
+
+        .modal-header p {
+          margin: 0;
+          color: #666;
+          font-size: 14px;
+        }
+
+        .modal-body {
+          margin-bottom: 20px;
+        }
+
+        .form-group {
+          margin-bottom: 15px;
+        }
+
+        .form-group label {
+          display: block;
+          margin-bottom: 8px;
+          font-weight: 500;
+          color: #333;
+        }
+
+        .form-group input {
+          width: 100%;
+          padding: 12px;
+          border: 1px solid #ddd;
+          border-radius: 8px;
+          font-size: 14px;
+          font-family: monospace;
+        }
+
+        .form-group input:focus {
+          outline: none;
+          border-color: #4CAF50;
+        }
+
+        .help-text {
+          margin-top: 10px;
+          padding: 12px;
+          background: #f5f5f5;
+          border-radius: 6px;
+          font-size: 13px;
+          color: #666;
+        }
+
+        .help-text a {
+          color: #4CAF50;
+          text-decoration: none;
+        }
+
+        .help-text a:hover {
+          text-decoration: underline;
+        }
+
+        .modal-footer {
+          display: flex;
+          gap: 10px;
+          justify-content: flex-end;
+        }
+
+        .btn-cancel {
+          padding: 10px 20px;
+          border: 1px solid #ddd;
+          background: white;
+          border-radius: 8px;
+          cursor: pointer;
+          font-size: 14px;
+          transition: all 0.2s;
+        }
+
+        .btn-cancel:hover {
+          background: #f5f5f5;
+        }
+
+        .btn-save-key {
+          padding: 10px 20px;
+          border: none;
+          background: #4CAF50;
+          color: white;
+          border-radius: 8px;
+          cursor: pointer;
+          font-size: 14px;
+          transition: all 0.2s;
+        }
+
+        .btn-save-key:hover {
+          background: #45a049;
+        }
+
+        .btn-save-key:disabled {
+          background: #ccc;
+          cursor: not-allowed;
+        }
+
+        /* API Key Banner Styles */
+        .api-key-banner {
+          background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+          border-radius: 12px;
+          padding: 20px;
+          margin-bottom: 20px;
+          color: white;
+        }
+
+        .banner-content {
+          display: flex;
+          align-items: center;
+          gap: 15px;
+        }
+
+        .banner-icon {
+          font-size: 32px;
+        }
+
+        .banner-text {
+          flex: 1;
+        }
+
+        .banner-text h3 {
+          margin: 0 0 5px 0;
+          font-size: 18px;
+        }
+
+        .banner-text p {
+          margin: 0;
+          opacity: 0.9;
+          font-size: 14px;
+        }
+
+        .btn-configure {
+          padding: 10px 20px;
+          background: white;
+          color: #667eea;
+          border: none;
+          border-radius: 8px;
+          cursor: pointer;
+          font-weight: 600;
+          transition: all 0.2s;
+        }
+
+        .btn-configure:hover {
+          transform: translateY(-2px);
+          box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+        }
+
+        /* API Key Status Styles */
+        .api-key-status {
+          display: flex;
+          align-items: center;
+          gap: 10px;
+          padding: 12px 16px;
+          background: #e8f5e9;
+          border-radius: 8px;
+          margin-bottom: 20px;
+          font-size: 14px;
+          color: #2e7d32;
+        }
+
+        .status-icon {
+          font-size: 18px;
+        }
+
+        .btn-update-key {
+          margin-left: auto;
+          padding: 6px 12px;
+          background: white;
+          border: 1px solid #4CAF50;
+          color: #4CAF50;
+          border-radius: 6px;
+          cursor: pointer;
+          font-size: 13px;
+          transition: all 0.2s;
+        }
+
+        .btn-update-key:hover {
+          background: #4CAF50;
+          color: white;
+        }
       `}</style>
+
+      {/* API Key Configuration Modal */}
+      {showApiKeyModal && (
+        <div className="api-key-modal-overlay" onClick={() => setShowApiKeyModal(false)}>
+          <div className="api-key-modal" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <h3>🔑 Configure Gemini API Key</h3>
+              <p>Enter your Google Gemini API key to enable AI post generation</p>
+            </div>
+            
+            <div className="modal-body">
+              <div className="form-group">
+                <label htmlFor="apiKey">Gemini API Key</label>
+                <input
+                  id="apiKey"
+                  type="password"
+                  value={apiKey}
+                  onChange={(e) => setApiKey(e.target.value)}
+                  placeholder="AIza..."
+                  disabled={isSavingApiKey}
+                />
+              </div>
+              
+              <div className="help-text">
+                <strong>How to get your API key:</strong>
+                <ol style={{ margin: '10px 0', paddingLeft: '20px' }}>
+                  <li>Visit <a href="https://makersuite.google.com/app/apikey" target="_blank" rel="noopener noreferrer">Google AI Studio</a></li>
+                  <li>Click "Get API Key" or "Create API Key"</li>
+                  <li>Copy your API key (starts with "AIza")</li>
+                  <li>Paste it above and click Save</li>
+                </ol>
+                <p style={{ margin: '10px 0 0 0' }}>
+                  Your API key is stored securely and only used for generating posts.
+                </p>
+              </div>
+            </div>
+            
+            <div className="modal-footer">
+              <button
+                className="btn-cancel"
+                onClick={() => {
+                  setShowApiKeyModal(false);
+                  setApiKey('');
+                }}
+                disabled={isSavingApiKey}
+              >
+                Cancel
+              </button>
+              <button
+                className="btn-save-key"
+                onClick={handleSaveApiKey}
+                disabled={isSavingApiKey || !apiKey.trim()}
+              >
+                {isSavingApiKey ? 'Validating...' : 'Save & Validate'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

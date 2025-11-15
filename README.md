@@ -34,7 +34,7 @@ See [INSTAGRAM_API_SETUP.md](./INSTAGRAM_API_SETUP.md) for complete setup instru
 - ✅ **Post selection** - Choose specific posts/reels to monitor
 - ✅ **Responsive design** - Works on desktop and mobile
 - ✅ **Docker support** - Easy deployment with Docker
-- ✅ **Updated for latest Instagram Graph API (v21.0)**
+- ✅ **Updated for latest Instagram Graph API (v24.0)**
 
 ### 🤖 NEW: AI Post Generator
 - ✨ **Automated content creation** - Generate engaging posts with AI
@@ -47,6 +47,31 @@ See [INSTAGRAM_API_SETUP.md](./INSTAGRAM_API_SETUP.md) for complete setup instru
 🚀 **[START HERE](./START_HERE_AI_POST.md)** - Get your first post in 5 minutes!
 
 📚 **Documentation**: [Quick Start](./QUICK_START_AI_POST.md) | [Full Guide](./AI_POST_GENERATOR_GUIDE.md) | [Comet API Setup](./COMET_API_SETUP.md) | [Flow Diagram](./AI_POST_FLOW_DIAGRAM.md)
+
+### 🎬 NEW: Dual Platform Publisher
+- 🚀 **One-click publishing** - Upload once, publish to Instagram + YouTube
+- 🤖 **AI content generation** - Auto-generate titles, descriptions, keywords, hashtags
+- 🎯 **Multi-provider AI** - Choose from Gemini, OpenAI, Claude, OpenRouter, LLaMA
+- 📊 **Real-time progress** - Live updates via WebSocket
+- 💾 **Complete tracking** - All jobs saved with platform IDs
+- ⚡ **Parallel publishing** - Both platforms upload simultaneously
+- 🎬 **Smart video processing** - Automatic format conversion with FFmpeg
+
+🚀 **[QUICK START](./QUICK_START_DUAL_PUBLISH.md)** - Publish your first video in 5 minutes!
+
+📚 **Documentation**: [Full Guide](./DUAL_PUBLISH_GUIDE.md) | [Summary](./DUAL_PUBLISH_SUMMARY.md) | [Media Processing](./MEDIA_PROCESSING_GUIDE.md)
+
+### 🔐 NEW: Secure OAuth 2.0 Integration
+- 🔒 **Encrypted storage** - AES-256-GCM encryption for all credentials
+- 🔄 **Automatic token refresh** - Long-lived tokens with auto-renewal
+- 📱 **Instagram OAuth** - Secure authentication with required scopes
+- 🎬 **YouTube OAuth** - Google OAuth 2.0 with offline access
+- 🛡️ **CSRF protection** - State parameter validation
+- 🎨 **User-friendly UI** - Easy configuration and connection
+
+🚀 **[OAUTH SETUP](./OAUTH_SETUP_GUIDE.md)** - Complete OAuth configuration guide!
+
+📚 **Features**: Encrypted client secrets | Token refresh | Secure callbacks | Multi-platform support
 
 ---
 
@@ -631,7 +656,7 @@ node check-mongodb.js
 - **Authentication:** JWT + bcrypt
 - **AI:** Google Gemini API (@langchain/google-genai)
 - **Workflow:** LangGraph
-- **Instagram API:** Graph API v21.0
+- **Instagram API:** Graph API v24.0
 
 ### Frontend
 - **Framework:** React 18
