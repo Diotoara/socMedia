@@ -7,7 +7,7 @@ const axios = require('axios');
  */
 class InstagramGraphService {
   constructor() {
-    this.baseUrl = 'https://graph.instagram.com/v21.0'; // Latest stable version
+    this.baseUrl = 'https://graph.instagram.com/v24.0'; // Latest stable version
     this.accessToken = null;
     this.instagramAccountId = null;
     this.isAuthenticated = false;

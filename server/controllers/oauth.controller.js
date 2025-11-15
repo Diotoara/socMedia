@@ -9,57 +9,6 @@ const youtubeOAuth = new YouTubeOAuthService();
 
 class OAuthController {
   /**
-   * POST /api/oauth/instagram/config
-   * Save Instagram OAuth client credentials
-   */
-  async saveInstagramOAuthConfig(req, res) {
-    try {
-      const userId = req.userId || req.user?._id;
-      const { clientId, clientSecret } = req.body;
-
-      if (!clientId || !clientSecret) {
-        return res.status(400).json({
-          success: false,
-          error: 'Client ID and Client Secret are required'
-        });
-      }
-
-      const user = await User.findById(userId);
-      if (!user) {
-        return res.status(404).json({
-          success: false,
-          error: 'User not found'
-        });
-      }
-
-      // Encrypt credentials
-      const encryptedClientId = encryptionService.encrypt(clientId);
-      const encryptedClientSecret = encryptionService.encrypt(clientSecret);
-
-      // Update user
-      if (!user.instagramCredentials) {
-        user.instagramCredentials = {};
-      }
-      user.instagramCredentials.clientId = encryptedClientId;
-      user.instagramCredentials.clientSecret = encryptedClientSecret;
-      user.instagramCredentials.lastUpdated = new Date();
-
-      await user.save();
-
-      res.json({
-        success: true,
-        message: 'Instagram OAuth configuration saved successfully'
-      });
-    } catch (error) {
-      console.error('[OAuth] Save Instagram config error:', error);
-      res.status(500).json({
-        success: false,
-        error: error.message
-      });
-    }
-  }
-
-  /**
    * GET /api/oauth/instagram/auth-url
    * Generate Instagram OAuth authorization URL
    */
@@ -68,22 +17,45 @@ class OAuthController {
       const userId = req.userId || req.user?._id;
       const user = await User.findById(userId);
 
-      if (!user || !user.instagramCredentials?.clientId) {
-        return res.status(400).json({
+      if (!user) {
+        return res.status(404).json({
           success: false,
-          error: 'Instagram OAuth not configured. Please save client credentials first.'
+          error: 'User not found'
         });
       }
 
-      // Decrypt client ID
-      const clientId = encryptionService.decrypt(user.instagramCredentials.clientId);
-      const redirectUri = `${process.env.APP_URL || 'http://localhost:3000'}/api/oauth/instagram/callback`;
+      // Use environment variable only
+      const clientId = process.env.INSTAGRAM_CLIENT_ID;
+      if (!clientId) {
+        return res.status(400).json({
+          success: false,
+          error: 'Instagram OAuth not configured by administrator. Please set INSTAGRAM_CLIENT_ID and INSTAGRAM_CLIENT_SECRET in backend .env file.'
+        });
+      }
 
+      const redirectUri = `${process.env.OAUTH_REDIRECT_BASE_URL || process.env.APP_URL || 'http://localhost:3000'}/api/oauth/instagram/callback`;
       const { url, state } = instagramOAuth.generateAuthUrl(clientId, redirectUri);
 
-      // Store state in session or database for validation
+      // Store state and userId for callback validation
       req.session = req.session || {};
       req.session.instagramOAuthState = state;
+      req.session.instagramOAuthUserId = userId.toString();
+      
+      // Clear any previous used code to allow fresh attempt
+      delete req.session.instagramOAuthUsedCode;
+      
+      // Save session before sending response
+      await new Promise((resolve, reject) => {
+        req.session.save((err) => {
+          if (err) {
+            console.error('[OAuth] Session save error:', err);
+            reject(err);
+          } else {
+            console.log(`[OAuth] Session initialized for user ${userId}, state: ${state}`);
+            resolve();
+          }
+        });
+      });
 
       res.json({
         success: true,
@@ -104,33 +76,68 @@ class OAuthController {
    * Handle Instagram OAuth callback
    */
   async handleInstagramCallback(req, res) {
+    const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
+    
     try {
       const { code, state } = req.query;
+      
+      console.log('[OAuth] Instagram callback received:', {
+        hasCode: !!code,
+        hasState: !!state,
+        hasSession: !!req.session,
+        sessionState: req.session?.instagramOAuthState,
+        sessionUserId: req.session?.instagramOAuthUserId,
+        usedCode: req.session?.instagramOAuthUsedCode
+      });
 
       if (!code) {
-        return res.status(400).json({
-          success: false,
-          error: 'Authorization code not provided'
-        });
+        console.error('[OAuth] No authorization code provided');
+        return res.redirect(`${frontendUrl}/dashboard?instagram=error&message=${encodeURIComponent('Authorization code not provided')}`);
       }
 
-      // Validate state (CSRF protection)
-      // In production, validate against stored state
+      // Validate state parameter to prevent CSRF attacks
+      if (state && req.session?.instagramOAuthState && state !== req.session.instagramOAuthState) {
+        console.error('[OAuth] State mismatch - possible CSRF attack', {
+          received: state,
+          expected: req.session.instagramOAuthState
+        });
+        return res.redirect(`${frontendUrl}/dashboard?instagram=error&message=${encodeURIComponent('Invalid state parameter')}`);
+      }
 
-      const userId = req.userId || req.user?._id;
+      // Check if this code has already been used in this session
+      if (req.session?.instagramOAuthUsedCode === code) {
+        console.warn('[OAuth] Authorization code already used in this session:', code.substring(0, 10) + '...');
+        return res.redirect(`${frontendUrl}/dashboard?instagram=error&message=${encodeURIComponent('Login session already completed - please start again')}`);
+      }
+
+      // Get userId from session
+      const userId = req.session?.instagramOAuthUserId || req.userId || req.user?._id;
+      if (!userId) {
+        return res.redirect(`${frontendUrl}/dashboard?instagram=error&message=${encodeURIComponent('User session not found')}`);
+      }
+
       const user = await User.findById(userId);
-
-      if (!user || !user.instagramCredentials?.clientId) {
-        return res.status(400).json({
-          success: false,
-          error: 'Instagram OAuth not configured'
-        });
+      if (!user) {
+        return res.redirect(`${frontendUrl}/dashboard?instagram=error&message=${encodeURIComponent('User not found')}`);
       }
 
-      // Decrypt credentials
-      const clientId = encryptionService.decrypt(user.instagramCredentials.clientId);
-      const clientSecret = encryptionService.decrypt(user.instagramCredentials.clientSecret);
-      const redirectUri = `${process.env.APP_URL || 'http://localhost:3000'}/api/oauth/instagram/callback`;
+      // Use environment variables only
+      const clientId = process.env.INSTAGRAM_CLIENT_ID;
+      const clientSecret = process.env.INSTAGRAM_CLIENT_SECRET;
+      if (!clientId || !clientSecret) {
+        return res.redirect(`${frontendUrl}/dashboard?instagram=error&message=${encodeURIComponent('Instagram OAuth not configured by administrator')}`);
+      }
+
+      const redirectUri = `${process.env.OAUTH_REDIRECT_BASE_URL || process.env.APP_URL || 'http://localhost:3000'}/api/oauth/instagram/callback`;
+
+      // Mark code as used BEFORE attempting exchange to prevent race conditions
+      req.session.instagramOAuthUsedCode = code;
+      await new Promise((resolve, reject) => {
+        req.session.save((err) => {
+          if (err) reject(err);
+          else resolve();
+        });
+      });
 
       // Exchange code for token
       const tokenResult = await instagramOAuth.exchangeCodeForToken(
@@ -141,14 +148,27 @@ class OAuthController {
       );
 
       if (!tokenResult.success) {
-        return res.status(400).json({
-          success: false,
-          error: tokenResult.error
-        });
+        // Check if error is "code already used"
+        if (tokenResult.error && (
+          tokenResult.error.includes('authorization code has been used') ||
+          tokenResult.error.includes('code has expired')
+        )) {
+          console.warn('[OAuth] Authorization code already used or expired');
+          // Clear session data for fresh attempt
+          delete req.session.instagramOAuthState;
+          delete req.session.instagramOAuthUserId;
+          delete req.session.instagramOAuthUsedCode;
+          await new Promise((resolve) => req.session.save(() => resolve()));
+          
+          return res.redirect(`${frontendUrl}/dashboard?instagram=error&message=${encodeURIComponent('Login session already completed - please start again')}`);
+        }
+        
+        return res.redirect(`${frontendUrl}/dashboard?instagram=error&message=${encodeURIComponent(tokenResult.error)}`);
       }
 
-      // Get long-lived token
+      // Get long-lived token (60 days)
       const longLivedResult = await instagramOAuth.getLongLivedToken(
+        clientId,
         clientSecret,
         tokenResult.accessToken
       );
@@ -160,88 +180,114 @@ class OAuthController {
         });
       }
 
-      // Validate and get account info
+      // Validate and get Instagram Business Account info
       const validation = await instagramOAuth.validateToken(longLivedResult.accessToken);
 
       if (!validation.success) {
-        return res.status(400).json({
-          success: false,
-          error: validation.error
-        });
+        console.error('[OAuth] Instagram validation failed:', validation.error);
+        
+        // Track token error
+        if (user.instagramCredentials) {
+          user.instagramCredentials.tokenErrorCount = (user.instagramCredentials.tokenErrorCount || 0) + 1;
+          user.instagramCredentials.lastTokenError = validation.error;
+          user.instagramCredentials.lastTokenErrorAt = new Date();
+          await user.save();
+        }
+        
+        // Provide helpful error message based on the error type
+        let userMessage = validation.error;
+        if (validation.error.includes('No Facebook Pages found')) {
+          userMessage = 'Instagram Business account required. Please: 1) Convert your Instagram to Business/Creator account, 2) Create a Facebook Page, 3) Connect Instagram to the Page. See documentation for details.';
+        } else if (validation.error.includes('No Instagram Business Account')) {
+          userMessage = 'Instagram not connected to Facebook Page. Please connect your Instagram Business account to a Facebook Page in Instagram settings.';
+        } else if (validation.error.includes('Invalid access token') || validation.error.includes('Cannot parse')) {
+          userMessage = 'Session expired or token corrupted. Please reconnect your Instagram account.';
+        }
+        
+        return res.redirect(`${frontendUrl}/dashboard?instagram=error&message=${encodeURIComponent(userMessage)}`);
       }
 
-      // Encrypt and save token
+      // Verify token works with a simple API call
+      console.log('[OAuth] Verifying token with API call...');
+      const verification = await instagramOAuth.verifyTokenWorks(
+        longLivedResult.accessToken,
+        validation.accountId
+      );
+
+      if (!verification.success) {
+        console.error('[OAuth] Token verification failed:', verification.error);
+        
+        // Track token error
+        if (user.instagramCredentials) {
+          user.instagramCredentials.tokenErrorCount = (user.instagramCredentials.tokenErrorCount || 0) + 1;
+          user.instagramCredentials.lastTokenError = `Verification failed: ${verification.error}`;
+          user.instagramCredentials.lastTokenErrorAt = new Date();
+          await user.save();
+        }
+        
+        return res.redirect(`${frontendUrl}/dashboard?instagram=error&message=${encodeURIComponent('Session expired or token corrupted. Please reconnect your Instagram account.')}`);
+      }
+
+      console.log('[OAuth] Token verified successfully');
+
+      // Encrypt and save token with all required fields including debug info
       const encryptedToken = encryptionService.encrypt(longLivedResult.accessToken);
-      const expiresAt = new Date(Date.now() + longLivedResult.expiresIn * 1000);
+      // Handle expires_at = 0 (means token doesn't expire - long-lived token)
+      const expiresAt = longLivedResult.expiresAt && longLivedResult.expiresAt > 0
+        ? new Date(longLivedResult.expiresAt * 1000) 
+        : new Date(Date.now() + (longLivedResult.expiresIn || 5184000) * 1000); // Default 60 days
+      const issuedAt = longLivedResult.issuedAt 
+        ? new Date(longLivedResult.issuedAt * 1000) 
+        : new Date();
+
+      // Initialize instagramCredentials if not exists
+      if (!user.instagramCredentials) {
+        user.instagramCredentials = {};
+      }
 
       user.instagramCredentials.accessToken = encryptedToken;
-      user.instagramCredentials.accountId = validation.accountId;
+      user.instagramCredentials.accountId = validation.accountId; // IG User ID
       user.instagramCredentials.accountName = validation.username;
+      user.instagramCredentials.pageId = validation.pageId; // Facebook Page ID
+      user.instagramCredentials.tokenType = longLivedResult.tokenType || 'bearer';
       user.instagramCredentials.tokenExpiresAt = expiresAt;
+      user.instagramCredentials.tokenIssuedAt = issuedAt;
+      user.instagramCredentials.tokenScopes = longLivedResult.scopes?.join(',') || 'instagram_basic,instagram_manage_messages,pages_read_engagement,pages_show_list,business_management';
+      user.instagramCredentials.tokenValidated = true;
+      user.instagramCredentials.tokenValidatedAt = new Date();
+      user.instagramCredentials.tokenErrorCount = 0; // Reset error count on successful connection
+      user.instagramCredentials.lastTokenError = null;
+      user.instagramCredentials.dataAccessExpiresAt = longLivedResult.dataAccessExpiresAt 
+        ? new Date(longLivedResult.dataAccessExpiresAt * 1000) 
+        : null;
       user.instagramCredentials.isActive = true;
       user.instagramCredentials.lastUpdated = new Date();
 
       await user.save();
 
-      // Redirect back to frontend with success
-      const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
-      res.redirect(`${frontendUrl}/oauth-config?instagram=success&account=${encodeURIComponent(validation.username)}`);
+      // Clear OAuth session data after successful completion
+      delete req.session.instagramOAuthState;
+      delete req.session.instagramOAuthUserId;
+      delete req.session.instagramOAuthUsedCode;
+      await new Promise((resolve) => req.session.save(() => resolve()));
+
+      console.log(`[OAuth] Instagram connected successfully for user ${userId}: @${validation.username}`);
+
+      // Redirect back to frontend dashboard with success
+      res.redirect(`${frontendUrl}/dashboard?instagram=success&account=${encodeURIComponent(validation.username)}`);
     } catch (error) {
       console.error('[OAuth] Instagram callback error:', error);
-      // Redirect back to frontend with error
-      const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
-      res.redirect(`${frontendUrl}/oauth-config?instagram=error&message=${encodeURIComponent(error.message)}`);
-    }
-  }
-
-  /**
-   * POST /api/oauth/youtube/config
-   * Save YouTube OAuth client credentials
-   */
-  async saveYouTubeOAuthConfig(req, res) {
-    try {
-      const userId = req.userId || req.user?._id;
-      const { clientId, clientSecret } = req.body;
-
-      if (!clientId || !clientSecret) {
-        return res.status(400).json({
-          success: false,
-          error: 'Client ID and Client Secret are required'
-        });
+      
+      // Clear session data on error to allow fresh attempt
+      if (req.session) {
+        delete req.session.instagramOAuthState;
+        delete req.session.instagramOAuthUserId;
+        delete req.session.instagramOAuthUsedCode;
+        await new Promise((resolve) => req.session.save(() => resolve()));
       }
-
-      const user = await User.findById(userId);
-      if (!user) {
-        return res.status(404).json({
-          success: false,
-          error: 'User not found'
-        });
-      }
-
-      // Encrypt credentials
-      const encryptedClientId = encryptionService.encrypt(clientId);
-      const encryptedClientSecret = encryptionService.encrypt(clientSecret);
-
-      // Update user
-      if (!user.youtubeCredentials) {
-        user.youtubeCredentials = {};
-      }
-      user.youtubeCredentials.clientId = encryptedClientId;
-      user.youtubeCredentials.clientSecret = encryptedClientSecret;
-      user.youtubeCredentials.lastUpdated = new Date();
-
-      await user.save();
-
-      res.json({
-        success: true,
-        message: 'YouTube OAuth configuration saved successfully'
-      });
-    } catch (error) {
-      console.error('[OAuth] Save YouTube config error:', error);
-      res.status(500).json({
-        success: false,
-        error: error.message
-      });
+      
+      // Redirect back to frontend dashboard with error
+      res.redirect(`${frontendUrl}/dashboard?instagram=error&message=${encodeURIComponent(error.message)}`);
     }
   }
 
@@ -254,23 +300,46 @@ class OAuthController {
       const userId = req.userId || req.user?._id;
       const user = await User.findById(userId);
 
-      if (!user || !user.youtubeCredentials?.clientId) {
-        return res.status(400).json({
+      if (!user) {
+        return res.status(404).json({
           success: false,
-          error: 'YouTube OAuth not configured. Please save client credentials first.'
+          error: 'User not found'
         });
       }
 
-      // Decrypt client credentials
-      const clientId = encryptionService.decrypt(user.youtubeCredentials.clientId);
-      const clientSecret = encryptionService.decrypt(user.youtubeCredentials.clientSecret);
-      const redirectUri = `${process.env.APP_URL || 'http://localhost:3000'}/api/oauth/youtube/callback`;
+      // Use environment variables only
+      const clientId = process.env.YOUTUBE_CLIENT_ID;
+      const clientSecret = process.env.YOUTUBE_CLIENT_SECRET;
+      if (!clientId || !clientSecret) {
+        return res.status(400).json({
+          success: false,
+          error: 'YouTube OAuth not configured by administrator. Please set YOUTUBE_CLIENT_ID and YOUTUBE_CLIENT_SECRET in backend .env file.'
+        });
+      }
 
+      const redirectUri = `${process.env.OAUTH_REDIRECT_BASE_URL || process.env.APP_URL || 'http://localhost:3000'}/api/oauth/youtube/callback`;
       const { url, state } = youtubeOAuth.generateAuthUrl(clientId, clientSecret, redirectUri);
 
-      // Store state for validation
+      // Store state and userId for callback validation
       req.session = req.session || {};
       req.session.youtubeOAuthState = state;
+      req.session.youtubeOAuthUserId = userId.toString();
+      
+      // Clear any previous used code to allow fresh attempt
+      delete req.session.youtubeOAuthUsedCode;
+      
+      // Save session before sending response
+      await new Promise((resolve, reject) => {
+        req.session.save((err) => {
+          if (err) {
+            console.error('[OAuth] YouTube session save error:', err);
+            reject(err);
+          } else {
+            console.log(`[OAuth] YouTube session initialized for user ${userId}, state: ${state}`);
+            resolve();
+          }
+        });
+      });
 
       res.json({
         success: true,
@@ -291,30 +360,69 @@ class OAuthController {
    * Handle YouTube OAuth callback
    */
   async handleYouTubeCallback(req, res) {
+    const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
+    
     try {
       const { code, state } = req.query;
+      
+      console.log('[OAuth] YouTube callback received:', {
+        hasCode: !!code,
+        hasState: !!state,
+        hasSession: !!req.session,
+        sessionState: req.session?.youtubeOAuthState,
+        sessionUserId: req.session?.youtubeOAuthUserId,
+        usedCode: req.session?.youtubeOAuthUsedCode
+      });
 
       if (!code) {
-        return res.status(400).json({
-          success: false,
-          error: 'Authorization code not provided'
-        });
+        console.error('[OAuth] No YouTube authorization code provided');
+        return res.redirect(`${frontendUrl}/dashboard?youtube=error&message=${encodeURIComponent('Authorization code not provided')}`);
       }
 
-      const userId = req.userId || req.user?._id;
+      // Validate state parameter to prevent CSRF attacks
+      if (state && req.session?.youtubeOAuthState && state !== req.session.youtubeOAuthState) {
+        console.error('[OAuth] YouTube state mismatch - possible CSRF attack', {
+          received: state,
+          expected: req.session.youtubeOAuthState
+        });
+        return res.redirect(`${frontendUrl}/dashboard?youtube=error&message=${encodeURIComponent('Invalid state parameter')}`);
+      }
+
+      // Check if this code has already been used in this session
+      if (req.session?.youtubeOAuthUsedCode === code) {
+        console.warn('[OAuth] YouTube authorization code already used in this session:', code.substring(0, 10) + '...');
+        return res.redirect(`${frontendUrl}/dashboard?youtube=error&message=${encodeURIComponent('Login session already completed - please start again')}`);
+      }
+
+      // Get userId from session
+      const userId = req.session?.youtubeOAuthUserId || req.userId || req.user?._id;
+      if (!userId) {
+        return res.redirect(`${frontendUrl}/dashboard?youtube=error&message=${encodeURIComponent('User session not found')}`);
+      }
+
       const user = await User.findById(userId);
-
-      if (!user || !user.youtubeCredentials?.clientId) {
-        return res.status(400).json({
-          success: false,
-          error: 'YouTube OAuth not configured'
-        });
+      if (!user) {
+        return res.redirect(`${frontendUrl}/dashboard?youtube=error&message=${encodeURIComponent('User not found')}`);
       }
 
-      // Decrypt credentials
-      const clientId = encryptionService.decrypt(user.youtubeCredentials.clientId);
-      const clientSecret = encryptionService.decrypt(user.youtubeCredentials.clientSecret);
-      const redirectUri = `${process.env.APP_URL || 'http://localhost:3000'}/api/oauth/youtube/callback`;
+      // Use user's credentials or environment variables
+      // Use environment variables only
+      const clientId = process.env.YOUTUBE_CLIENT_ID;
+      const clientSecret = process.env.YOUTUBE_CLIENT_SECRET;
+      if (!clientId || !clientSecret) {
+        return res.redirect(`${frontendUrl}/dashboard?youtube=error&message=${encodeURIComponent('YouTube OAuth not configured by administrator')}`);
+      }
+
+      const redirectUri = `${process.env.OAUTH_REDIRECT_BASE_URL || process.env.APP_URL || 'http://localhost:3000'}/api/oauth/youtube/callback`;
+
+      // Mark code as used BEFORE attempting exchange to prevent race conditions
+      req.session.youtubeOAuthUsedCode = code;
+      await new Promise((resolve, reject) => {
+        req.session.save((err) => {
+          if (err) reject(err);
+          else resolve();
+        });
+      });
 
       // Exchange code for tokens
       const tokenResult = await youtubeOAuth.exchangeCodeForToken(
@@ -325,10 +433,23 @@ class OAuthController {
       );
 
       if (!tokenResult.success) {
-        return res.status(400).json({
-          success: false,
-          error: tokenResult.error
-        });
+        // Check if error is "code already used"
+        if (tokenResult.error && (
+          tokenResult.error.includes('authorization code has been used') ||
+          tokenResult.error.includes('invalid_grant') ||
+          tokenResult.error.includes('code has expired')
+        )) {
+          console.warn('[OAuth] YouTube authorization code already used or expired');
+          // Clear session data for fresh attempt
+          delete req.session.youtubeOAuthState;
+          delete req.session.youtubeOAuthUserId;
+          delete req.session.youtubeOAuthUsedCode;
+          await new Promise((resolve) => req.session.save(() => resolve()));
+          
+          return res.redirect(`${frontendUrl}/dashboard?youtube=error&message=${encodeURIComponent('Login session already completed - please start again')}`);
+        }
+        
+        return res.redirect(`${frontendUrl}/dashboard?youtube=error&message=${encodeURIComponent(tokenResult.error)}`);
       }
 
       // Validate and get channel info
@@ -345,29 +466,51 @@ class OAuthController {
         });
       }
 
-      // Encrypt and save tokens
+      // Encrypt and save tokens with all required fields
       const encryptedAccessToken = encryptionService.encrypt(tokenResult.accessToken);
       const encryptedRefreshToken = encryptionService.encrypt(tokenResult.refreshToken);
       const expiresAt = new Date(tokenResult.expiresIn);
+
+      // Initialize youtubeCredentials if not exists
+      if (!user.youtubeCredentials) {
+        user.youtubeCredentials = {};
+      }
 
       user.youtubeCredentials.accessToken = encryptedAccessToken;
       user.youtubeCredentials.refreshToken = encryptedRefreshToken;
       user.youtubeCredentials.channelId = validation.channelId;
       user.youtubeCredentials.channelName = validation.channelTitle;
+      user.youtubeCredentials.tokenType = tokenResult.tokenType || 'Bearer';
+      user.youtubeCredentials.scope = tokenResult.scope || '';
       user.youtubeCredentials.tokenExpiresAt = expiresAt;
       user.youtubeCredentials.isActive = true;
       user.youtubeCredentials.lastUpdated = new Date();
 
       await user.save();
 
-      // Redirect back to frontend with success
-      const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
-      res.redirect(`${frontendUrl}/oauth-config?youtube=success&channel=${encodeURIComponent(validation.channelTitle)}`);
+      // Clear OAuth session data after successful completion
+      delete req.session.youtubeOAuthState;
+      delete req.session.youtubeOAuthUserId;
+      delete req.session.youtubeOAuthUsedCode;
+      await new Promise((resolve) => req.session.save(() => resolve()));
+
+      console.log(`[OAuth] YouTube connected successfully for user ${userId}: ${validation.channelTitle}`);
+
+      // Redirect back to frontend dashboard with success
+      res.redirect(`${frontendUrl}/dashboard?youtube=success&channel=${encodeURIComponent(validation.channelTitle)}`);
     } catch (error) {
       console.error('[OAuth] YouTube callback error:', error);
-      // Redirect back to frontend with error
-      const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
-      res.redirect(`${frontendUrl}/oauth-config?youtube=error&message=${encodeURIComponent(error.message)}`);
+      
+      // Clear session data on error to allow fresh attempt
+      if (req.session) {
+        delete req.session.youtubeOAuthState;
+        delete req.session.youtubeOAuthUserId;
+        delete req.session.youtubeOAuthUsedCode;
+        await new Promise((resolve) => req.session.save(() => resolve()));
+      }
+      
+      // Redirect back to frontend dashboard with error
+      res.redirect(`${frontendUrl}/dashboard?youtube=error&message=${encodeURIComponent(error.message)}`);
     }
   }
 
@@ -378,43 +521,21 @@ class OAuthController {
   async refreshInstagramToken(req, res) {
     try {
       const userId = req.userId || req.user?._id;
-      const user = await User.findById(userId);
-
-      if (!user || !user.instagramCredentials?.accessToken) {
-        return res.status(400).json({
+      const tokenRefreshService = require('../services/token-refresh.service');
+      
+      const result = await tokenRefreshService.refreshInstagramTokenForUser(userId);
+      
+      if (result.success) {
+        res.json({
+          success: true,
+          message: 'Instagram token refreshed successfully'
+        });
+      } else {
+        res.status(400).json({
           success: false,
-          error: 'Instagram not connected'
+          error: result.error
         });
       }
-
-      // Decrypt token
-      const accessToken = encryptionService.decrypt(user.instagramCredentials.accessToken);
-
-      // Refresh token
-      const refreshResult = await instagramOAuth.refreshToken(accessToken);
-
-      if (!refreshResult.success) {
-        return res.status(400).json({
-          success: false,
-          error: refreshResult.error
-        });
-      }
-
-      // Encrypt and save new token
-      const encryptedToken = encryptionService.encrypt(refreshResult.accessToken);
-      const expiresAt = new Date(Date.now() + refreshResult.expiresIn * 1000);
-
-      user.instagramCredentials.accessToken = encryptedToken;
-      user.instagramCredentials.tokenExpiresAt = expiresAt;
-      user.instagramCredentials.lastUpdated = new Date();
-
-      await user.save();
-
-      res.json({
-        success: true,
-        message: 'Instagram token refreshed successfully',
-        expiresAt
-      });
     } catch (error) {
       console.error('[OAuth] Instagram refresh error:', error);
       res.status(500).json({
@@ -431,49 +552,21 @@ class OAuthController {
   async refreshYouTubeToken(req, res) {
     try {
       const userId = req.userId || req.user?._id;
-      const user = await User.findById(userId);
-
-      if (!user || !user.youtubeCredentials?.refreshToken) {
-        return res.status(400).json({
+      const tokenRefreshService = require('../services/token-refresh.service');
+      
+      const result = await tokenRefreshService.refreshYouTubeTokenForUser(userId);
+      
+      if (result.success) {
+        res.json({
+          success: true,
+          message: 'YouTube token refreshed successfully'
+        });
+      } else {
+        res.status(400).json({
           success: false,
-          error: 'YouTube not connected'
+          error: result.error
         });
       }
-
-      // Decrypt credentials
-      const clientId = encryptionService.decrypt(user.youtubeCredentials.clientId);
-      const clientSecret = encryptionService.decrypt(user.youtubeCredentials.clientSecret);
-      const refreshToken = encryptionService.decrypt(user.youtubeCredentials.refreshToken);
-
-      // Refresh token
-      const refreshResult = await youtubeOAuth.refreshAccessToken(
-        clientId,
-        clientSecret,
-        refreshToken
-      );
-
-      if (!refreshResult.success) {
-        return res.status(400).json({
-          success: false,
-          error: refreshResult.error
-        });
-      }
-
-      // Encrypt and save new token
-      const encryptedToken = encryptionService.encrypt(refreshResult.accessToken);
-      const expiresAt = new Date(refreshResult.expiresIn);
-
-      user.youtubeCredentials.accessToken = encryptedToken;
-      user.youtubeCredentials.tokenExpiresAt = expiresAt;
-      user.youtubeCredentials.lastUpdated = new Date();
-
-      await user.save();
-
-      res.json({
-        success: true,
-        message: 'YouTube token refreshed successfully',
-        expiresAt
-      });
     } catch (error) {
       console.error('[OAuth] YouTube refresh error:', error);
       res.status(500).json({

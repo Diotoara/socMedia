@@ -2,6 +2,8 @@ require('dotenv').config({ path: require('path').join(__dirname, '..', '.env') }
 const express = require('express');
 const path = require('path');
 const cookieParser = require('cookie-parser');
+const session = require('express-session');
+const MongoStore = require('connect-mongo');
 const http = require('http');
 const { Server } = require('socket.io');
 
@@ -21,6 +23,9 @@ const postsRoutes = require('./routes/posts.routes');
 const aiPostRoutes = require('./routes/ai-post.routes');
 const createDualPublishRoutes = require('./routes/dual-publish.routes');
 const oauthRoutes = require('./routes/oauth.routes');
+const instagramStatusRoutes = require('./routes/instagram-status.routes');
+const statsRoutes = require('./routes/stats.routes');
+const apiConfigRoutes = require('./routes/api-config.routes');
 
 // Import middleware
 const { authMiddleware } = require('./middleware/auth.middleware');
@@ -55,6 +60,22 @@ const dualPublishController = new DualPublishController(io);
 // Middleware
 app.use(express.json());
 app.use(cookieParser());
+
+// Session middleware (for OAuth state management)
+app.use(session({
+  secret: process.env.JWT_SECRET || 'your-secret-key-change-in-production',
+  resave: false,
+  saveUninitialized: false,
+  store: MongoStore.create({
+    mongoUrl: process.env.MONGODB_URI,
+    touchAfter: 24 * 3600 // Lazy session update (24 hours)
+  }),
+  cookie: {
+    secure: process.env.NODE_ENV === 'production', // HTTPS only in production
+    httpOnly: true,
+    maxAge: 1000 * 60 * 60 * 24 // 24 hours
+  }
+}));
 
 // CORS middleware for development
 app.use((req, res, next) => {
@@ -123,6 +144,21 @@ app.use('/api/publish', authMiddleware, createDualPublishRoutes(dualPublishContr
 // OAuth Routes (Protected)
 // ============================================
 app.use('/api/oauth', authMiddleware, oauthRoutes);
+
+// ============================================
+// Instagram Status Routes (Protected)
+// ============================================
+app.use('/api/instagram', authMiddleware, instagramStatusRoutes);
+
+// ============================================
+// Stats Routes (Protected)
+// ============================================
+app.use('/api/stats', authMiddleware, statsRoutes);
+
+// ============================================
+// API Configuration Routes (Protected)
+// ============================================
+app.use('/api/config', authMiddleware, apiConfigRoutes);
 
 // ============================================
 // Configuration Routes (Protected)
@@ -336,6 +372,11 @@ server.listen(PORT, async () => {
   // Connect to MongoDB
   try {
     await database.connect();
+    
+    // Start token refresh service after database connection
+    const tokenRefreshService = require('./services/token-refresh.service');
+    tokenRefreshService.start();
+    console.log('[TokenRefresh] Automatic token refresh service started');
   } catch (error) {
     console.error('Failed to connect to MongoDB. Server will continue but database features will not work.');
   }

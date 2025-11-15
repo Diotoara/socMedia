@@ -57,15 +57,17 @@ const LoginPage = () => {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 flex items-center justify-center p-4">
+    <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-purple-50 flex items-center justify-center p-4">
       <div className="max-w-md w-full">
         {/* Logo/Title */}
         <div className="text-center mb-8">
-          <h1 className="text-4xl font-bold text-gray-900 mb-2">
-            Instagram Automation
-          </h1>
+          <Link to="/" className="inline-block mb-4">
+            <h1 className="text-4xl font-bold bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent">
+              ⚡ AutoFlow
+            </h1>
+          </Link>
           <p className="text-gray-600">
-            Sign in to manage your automation
+            Sign in to your account
           </p>
         </div>
 
@@ -136,7 +138,18 @@ const LoginPage = () => {
 
         {/* Footer */}
         <div className="mt-8 text-center text-sm text-gray-600">
-          <p>Secure authentication with JWT tokens</p>
+          <Link to="/" className="text-blue-600 hover:text-blue-700 font-medium">
+            ← Back to Home
+          </Link>
+          <div className="flex justify-center gap-4 mt-4">
+            <Link to="/privacy" className="text-blue-600 hover:text-blue-700">
+              Privacy Policy
+            </Link>
+            <span>•</span>
+            <Link to="/terms" className="text-blue-600 hover:text-blue-700">
+              Terms of Service
+            </Link>
+          </div>
         </div>
       </div>
     </div>

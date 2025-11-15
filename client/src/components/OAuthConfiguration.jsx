@@ -198,7 +198,28 @@ export default function OAuthConfiguration() {
   return (
     <div className="max-w-4xl mx-auto p-6 space-y-8">
       <div className="bg-white rounded-lg shadow-lg p-6">
-        <h2 className="text-2xl font-bold mb-6">OAuth Configuration</h2>
+        <h2 className="text-2xl font-bold mb-2">OAuth Configuration</h2>
+        <p className="text-gray-600 mb-6">
+          Configure your OAuth apps to enable one-click login for Instagram and YouTube
+        </p>
+
+        {/* Important Notice */}
+        <div className="mb-6 p-4 bg-yellow-50 border-l-4 border-yellow-400">
+          <div className="flex">
+            <div className="flex-shrink-0">
+              <svg className="h-5 w-5 text-yellow-400" viewBox="0 0 20 20" fill="currentColor">
+                <path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
+              </svg>
+            </div>
+            <div className="ml-3">
+              <h3 className="text-sm font-medium text-yellow-800">Required Setup</h3>
+              <div className="mt-2 text-sm text-yellow-700">
+                <p>You must configure OAuth credentials here <strong>before</strong> you can use "Login with Instagram" or "Login with YouTube" buttons.</p>
+                <p className="mt-1">Follow the instructions below to create your OAuth apps and enter the credentials.</p>
+              </div>
+            </div>
+          </div>
+        </div>
         
         {message.text && (
           <div className={`mb-4 p-4 rounded-md ${
@@ -219,22 +240,22 @@ export default function OAuthConfiguration() {
           </h3>
 
           <div className="bg-blue-50 border border-blue-200 rounded-md p-4 mb-4">
+            <h4 className="font-semibold text-blue-900 mb-2">📋 Setup Instructions:</h4>
+            <ol className="list-decimal list-inside text-sm text-blue-800 space-y-2 mb-3">
+              <li>Create a Facebook App at <a href="https://developers.facebook.com/apps" target="_blank" rel="noopener noreferrer" className="underline font-semibold">Facebook Developers</a></li>
+              <li>Add "Instagram Basic Display" and "Instagram Graph API" products</li>
+              <li>Connect your Instagram Professional (Business/Creator) account to a Facebook Page</li>
+              <li>Configure OAuth redirect URI: <code className="bg-white px-1 py-0.5 rounded">{window.location.origin}/api/oauth/instagram/callback</code></li>
+            </ol>
             <h4 className="font-semibold text-blue-900 mb-2">Required Scopes:</h4>
             <ul className="list-disc list-inside text-sm text-blue-800 space-y-1">
-              <li><code>instagram_business_basic</code></li>
-              <li><code>instagram_business_content_publish</code></li>
-              <li><code>instagram_business_manage_comments</code></li>
+              <li><code>instagram_basic</code> - Read profile & manage comments</li>
+              <li><code>instagram_content_publish</code> - Publish posts</li>
+              <li><code>pages_show_list</code> - Access Facebook Pages</li>
+              <li><code>pages_read_engagement</code> - Read engagement data</li>
             </ul>
-            <p className="mt-2 text-sm text-blue-700">
-              Get your OAuth credentials from{' '}
-              <a
-                href="https://developers.facebook.com/apps"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="underline font-semibold"
-              >
-                Facebook Developers
-              </a>
+            <p className="mt-2 text-xs text-blue-600">
+              ⚠️ Instagram works only with Instagram Professional (Business/Creator) accounts connected to a Facebook Page
             </p>
           </div>
 
@@ -312,21 +333,22 @@ export default function OAuthConfiguration() {
           </h3>
 
           <div className="bg-red-50 border border-red-200 rounded-md p-4 mb-4">
+            <h4 className="font-semibold text-red-900 mb-2">📋 Setup Instructions:</h4>
+            <ol className="list-decimal list-inside text-sm text-red-800 space-y-2 mb-3">
+              <li>Create a project at <a href="https://console.cloud.google.com" target="_blank" rel="noopener noreferrer" className="underline font-semibold">Google Cloud Console</a></li>
+              <li>Enable "YouTube Data API v3"</li>
+              <li>Create OAuth 2.0 credentials (Web application)</li>
+              <li>Add authorized redirect URI: <code className="bg-white px-1 py-0.5 rounded">{window.location.origin}/api/oauth/youtube/callback</code></li>
+            </ol>
             <h4 className="font-semibold text-red-900 mb-2">Required Scopes:</h4>
             <ul className="list-disc list-inside text-sm text-red-800 space-y-1">
               <li><code>https://www.googleapis.com/auth/youtube.upload</code></li>
+              <li><code>https://www.googleapis.com/auth/youtube.readonly</code></li>
               <li><code>https://www.googleapis.com/auth/youtube.force-ssl</code></li>
+              <li><code>https://www.googleapis.com/auth/youtube.channel-memberships.creator</code></li>
             </ul>
-            <p className="mt-2 text-sm text-red-700">
-              Get your OAuth credentials from{' '}
-              <a
-                href="https://console.cloud.google.com/apis/credentials"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="underline font-semibold"
-              >
-                Google Cloud Console
-              </a>
+            <p className="mt-2 text-xs text-red-600">
+              ℹ️ You'll receive both access_token and refresh_token for long-term access
             </p>
           </div>
 

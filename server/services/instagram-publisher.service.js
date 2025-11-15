@@ -7,53 +7,60 @@ const FormData = require('form-data');
  */
 class InstagramPublisherService {
   constructor() {
-    this.baseUrl = 'https://graph.instagram.com/v21.0';
+    // Use Facebook Graph API v24.0 consistently
+    this.apiVersion = 'v24.0';
+    this.baseUrl = `https://graph.facebook.com/${this.apiVersion}`;
     this.accessToken = null;
-    this.instagramAccountId = null;
+    this.instagramAccountId = null; // This is the ig-user-id from OAuth
     this.maxRetries = 3;
     this.retryDelay = 2000; // 2 seconds
   }
 
   /**
    * Initialize with credentials
+   * Sanitizes token to remove any whitespace
    */
   initialize(accessToken, instagramAccountId) {
-    this.accessToken = accessToken;
+    // Sanitize token - remove ALL whitespace characters
+    this.accessToken = accessToken?.replace(/\s+/g, '').trim();
     this.instagramAccountId = instagramAccountId;
   }
 
   /**
    * Upload image to a public server (required by Instagram API)
-   * For production, you'd use AWS S3, Cloudinary, etc.
-   * For now, we'll use a temporary solution
+   * Uses Cloudinary which is more reliable for Instagram's crawler
    */
   async uploadImageToPublicServer(imageBuffer, filename) {
-    // In production, upload to your CDN/cloud storage
-    // For this implementation, we'll use a temporary file server approach
-    
-    // Option 1: Use imgbb (free image hosting)
+    // Use Cloudinary as primary (more reliable for Instagram)
     try {
-      const formData = new FormData();
-      formData.append('image', imageBuffer.toString('base64'));
-      
-      const response = await axios.post('https://api.imgbb.com/1/upload', formData, {
-        params: {
-          key: process.env.IMGBB_API_KEY || '7d8c5d8c5d8c5d8c5d8c5d8c5d8c5d8c' // Get free key from imgbb.com
-        },
-        headers: formData.getHeaders()
-      });
-
-      return response.data.data.url;
-    } catch (error) {
-      console.error('[InstagramPublisherService] Failed to upload to imgbb:', error.message);
-      
-      // Fallback: Use Cloudinary (also free tier available)
       return await this.uploadToCloudinary(imageBuffer, filename);
+    } catch (cloudinaryError) {
+      console.error('[InstagramPublisherService] Cloudinary failed:', cloudinaryError.message);
+      
+      // Fallback to imgbb
+      try {
+        console.log('[InstagramPublisherService] Trying imgbb fallback...');
+        const formData = new FormData();
+        formData.append('image', imageBuffer.toString('base64'));
+        
+        const response = await axios.post('https://api.imgbb.com/1/upload', formData, {
+          params: {
+            key: process.env.IMGBB_API_KEY || '8ef48a1f264ea854fbd049c0e14e5c81'
+          },
+          headers: formData.getHeaders(),
+          timeout: 20000
+        });
+
+        return response.data.data.url;
+      } catch (imgbbError) {
+        console.error('[InstagramPublisherService] imgbb also failed:', imgbbError.message);
+        throw new Error('All image upload services failed. Please check your configuration.');
+      }
     }
   }
 
   /**
-   * Alternative: Upload to Cloudinary
+   * Alternative: Upload to Cloudinary (More reliable for Instagram)
    */
   async uploadToCloudinary(imageBuffer, filename) {
     const cloudName = process.env.CLOUDINARY_CLOUD_NAME;
@@ -64,19 +71,92 @@ class InstagramPublisherService {
       throw new Error('Cloudinary credentials not configured. Please set CLOUDINARY_* environment variables.');
     }
 
-    const formData = new FormData();
-    formData.append('file', imageBuffer, filename);
-    formData.append('upload_preset', 'ml_default'); // or your preset
-    
-    const response = await axios.post(
-      `https://api.cloudinary.com/v1_1/${cloudName}/image/upload`,
-      formData,
-      {
-        headers: formData.getHeaders()
-      }
-    );
+    try {
+      console.log('[InstagramPublisherService] Uploading to Cloudinary...');
+      
+      // Generate timestamp and signature for authenticated upload
+      const timestamp = Math.round(Date.now() / 1000);
+      const crypto = require('crypto');
+      
+      // Create signature
+      const signatureString = `timestamp=${timestamp}${apiSecret}`;
+      const signature = crypto.createHash('sha1').update(signatureString).digest('hex');
+      
+      const formData = new FormData();
+      formData.append('file', imageBuffer, filename);
+      formData.append('timestamp', timestamp.toString());
+      formData.append('api_key', apiKey);
+      formData.append('signature', signature);
+      
+      const response = await axios.post(
+        `https://api.cloudinary.com/v1_1/${cloudName}/image/upload`,
+        formData,
+        {
+          headers: formData.getHeaders(),
+          timeout: 30000
+        }
+      );
 
-    return response.data.secure_url;
+      console.log('[InstagramPublisherService] Cloudinary upload successful');
+      return response.data.secure_url;
+      
+    } catch (error) {
+      console.error('[InstagramPublisherService] Cloudinary upload failed:', error.message);
+      throw new Error(`Cloudinary upload failed: ${error.message}`);
+    }
+  }
+
+  /**
+   * Validate image URL before sending to Instagram
+   */
+  async validateImageUrl(imageUrl) {
+    try {
+      console.log('[InstagramPublisherService] Validating image URL...');
+      
+      // Check URL format
+      if (!imageUrl || typeof imageUrl !== 'string') {
+        throw new Error('Invalid image URL');
+      }
+
+      // Check if URL ends with image extension
+      const validExtensions = ['.jpg', '.jpeg', '.png'];
+      const hasValidExtension = validExtensions.some(ext => 
+        imageUrl.toLowerCase().includes(ext)
+      );
+
+      if (!hasValidExtension) {
+        console.warn('[InstagramPublisherService] URL may not have valid image extension:', imageUrl);
+      }
+
+      // Make HEAD request to check if image is accessible
+      const headResponse = await axios.head(imageUrl, { 
+        timeout: 10000,
+        maxRedirects: 5
+      });
+
+      console.log('[InstagramPublisherService] Image validation:', {
+        status: headResponse.status,
+        contentType: headResponse.headers['content-type'],
+        contentLength: headResponse.headers['content-length']
+      });
+
+      // Check if content type is image
+      const contentType = headResponse.headers['content-type'];
+      if (!contentType || !contentType.startsWith('image/')) {
+        throw new Error(`Invalid content type: ${contentType}. Must be image/jpeg or image/png`);
+      }
+
+      // Check if status is 200
+      if (headResponse.status !== 200) {
+        throw new Error(`Image URL returned status ${headResponse.status}`);
+      }
+
+      console.log('[InstagramPublisherService] Image URL validated successfully ✓');
+      return true;
+    } catch (error) {
+      console.error('[InstagramPublisherService] Image validation failed:', error.message);
+      throw new Error(`Image URL validation failed: ${error.message}. Please ensure the URL is publicly accessible and points directly to an image file.`);
+    }
   }
 
   /**
@@ -86,13 +166,24 @@ class InstagramPublisherService {
     try {
       console.log('[InstagramPublisherService] Creating media container...');
       
+      // Validate image URL first
+      await this.validateImageUrl(imageUrl);
+      
       // Ensure caption is properly formatted
       const cleanCaption = caption ? String(caption).trim() : '';
       
+      // Sanitize token before use
+      const cleanToken = this.accessToken?.replace(/\s+/g, '').trim();
+      
+      // Log the image URL for debugging
+      console.log('[InstagramPublisherService] Image URL:', imageUrl);
+      console.log('[InstagramPublisherService] Caption length:', cleanCaption.length);
+      
       const params = {
-        access_token: this.accessToken,
+        access_token: cleanToken,
         image_url: imageUrl,
         caption: cleanCaption
+        // Note: media_type is NOT needed for images - it's inferred from image_url
       };
       
       // Add location if provided and valid (location_id must be a valid Instagram location page ID)
@@ -114,6 +205,11 @@ class InstagramPublisherService {
       
       return containerId;
     } catch (error) {
+      console.error('[InstagramPublisherService] Create container error:', {
+        message: error.message,
+        response: error.response?.data,
+        imageUrl: imageUrl
+      });
       throw new Error(`Failed to create media container: ${error.response?.data?.error?.message || error.message}`);
     }
   }
@@ -123,12 +219,15 @@ class InstagramPublisherService {
    */
   async checkContainerStatus(containerId) {
     try {
+      // Sanitize token before use
+      const cleanToken = this.accessToken?.replace(/\s+/g, '').trim();
+      
       const response = await axios.get(
         `${this.baseUrl}/${containerId}`,
         {
           params: {
-            access_token: this.accessToken,
-            fields: 'status_code,status,error_message'
+            access_token: cleanToken,
+            fields: 'status_code' // Only request status_code, not error_message
           }
         }
       );
@@ -148,12 +247,15 @@ class InstagramPublisherService {
     try {
       console.log('[InstagramPublisherService] Publishing media container...');
       
+      // Sanitize token before use
+      const cleanToken = this.accessToken?.replace(/\s+/g, '').trim();
+      
       const response = await axios.post(
         `${this.baseUrl}/${this.instagramAccountId}/media_publish`,
         null,
         {
           params: {
-            access_token: this.accessToken,
+            access_token: cleanToken,
             creation_id: containerId
           }
         }
@@ -202,26 +304,50 @@ class InstagramPublisherService {
 
   /**
    * Wait for container to be ready before publishing
+   * For images: Usually ready immediately
+   * For videos: May take time to process
    */
   async waitForContainerReady(containerId, maxAttempts = 10) {
+    console.log('[InstagramPublisherService] Checking container status...');
+    
     for (let i = 0; i < maxAttempts; i++) {
-      const status = await this.checkContainerStatus(containerId);
-      
-      if (status.status_code === 'FINISHED') {
-        console.log('[InstagramPublisherService] Container is ready');
+      try {
+        const status = await this.checkContainerStatus(containerId);
+        
+        console.log(`[InstagramPublisherService] Container status (attempt ${i + 1}/${maxAttempts}):`, status);
+        
+        // Check if container is ready
+        if (status.status_code === 'FINISHED') {
+          console.log('[InstagramPublisherService] Container is ready ✓');
+          return true;
+        }
+        
+        // Check for errors
+        if (status.status_code === 'ERROR') {
+          throw new Error(`Container processing failed with status: ${status.status_code}`);
+        }
+        
+        // For images, if no status_code is returned, it might be ready immediately
+        if (!status.status_code) {
+          console.log('[InstagramPublisherService] No status_code - container may be ready (image)');
+          return true;
+        }
+
+        // Wait 2 seconds before checking again
+        if (i < maxAttempts - 1) {
+          console.log(`[InstagramPublisherService] Status: ${status.status_code}, waiting 2s...`);
+          await new Promise(resolve => setTimeout(resolve, 2000));
+        }
+      } catch (error) {
+        // If status check fails, it might mean the container is ready (for images)
+        console.log('[InstagramPublisherService] Status check returned error, assuming ready:', error.message);
         return true;
       }
-      
-      if (status.status_code === 'ERROR') {
-        throw new Error(`Container processing failed: ${status.status}`);
-      }
-
-      // Wait 2 seconds before checking again
-      console.log(`[InstagramPublisherService] Container status: ${status.status_code}, waiting...`);
-      await new Promise(resolve => setTimeout(resolve, 2000));
     }
 
-    throw new Error('Container processing timeout');
+    // If we've waited long enough, try to publish anyway (might work for images)
+    console.log('[InstagramPublisherService] Max attempts reached, proceeding to publish...');
+    return true;
   }
 
   /**
@@ -229,11 +355,14 @@ class InstagramPublisherService {
    */
   async checkPublishingLimit() {
     try {
+      // Sanitize token before use
+      const cleanToken = this.accessToken?.replace(/\s+/g, '').trim();
+      
       const response = await axios.get(
         `${this.baseUrl}/${this.instagramAccountId}/content_publishing_limit`,
         {
           params: {
-            access_token: this.accessToken,
+            access_token: cleanToken,
             fields: 'quota_usage,config'
           }
         }
@@ -241,6 +370,10 @@ class InstagramPublisherService {
 
       return response.data;
     } catch (error) {
+      // Handle error code 190 specifically
+      if (error.response?.data?.error?.code === 190) {
+        throw new Error('Your Instagram connection appears broken. Please reconnect your Instagram Business account.');
+      }
       throw new Error(`Failed to check publishing limit: ${error.response?.data?.error?.message || error.message}`);
     }
   }

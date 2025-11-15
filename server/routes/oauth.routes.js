@@ -5,10 +5,6 @@ const OAuthController = require('../controllers/oauth.controller');
 const oauthController = new OAuthController();
 
 // Instagram OAuth routes
-router.post('/instagram/config', (req, res) => {
-  oauthController.saveInstagramOAuthConfig(req, res);
-});
-
 router.get('/instagram/auth-url', (req, res) => {
   oauthController.getInstagramAuthUrl(req, res);
 });
@@ -22,10 +18,6 @@ router.post('/instagram/refresh', (req, res) => {
 });
 
 // YouTube OAuth routes
-router.post('/youtube/config', (req, res) => {
-  oauthController.saveYouTubeOAuthConfig(req, res);
-});
-
 router.get('/youtube/auth-url', (req, res) => {
   oauthController.getYouTubeAuthUrl(req, res);
 });

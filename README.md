@@ -34,7 +34,7 @@ See [INSTAGRAM_API_SETUP.md](./INSTAGRAM_API_SETUP.md) for complete setup instru
 - ✅ **Post selection** - Choose specific posts/reels to monitor
 - ✅ **Responsive design** - Works on desktop and mobile
 - ✅ **Docker support** - Easy deployment with Docker
-- ✅ **Updated for latest Instagram Graph API (v21.0)**
+- ✅ **Updated for latest Instagram Graph API (v24.0)**
 
 ### 🤖 NEW: AI Post Generator
 - ✨ **Automated content creation** - Generate engaging posts with AI
@@ -656,7 +656,7 @@ node check-mongodb.js
 - **Authentication:** JWT + bcrypt
 - **AI:** Google Gemini API (@langchain/google-genai)
 - **Workflow:** LangGraph
-- **Instagram API:** Graph API v21.0
+- **Instagram API:** Graph API v24.0
 
 ### Frontend
 - **Framework:** React 18

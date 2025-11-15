@@ -37,13 +37,26 @@ const userSchema = new mongoose.Schema({
     default: null
   },
   instagramCredentials: {
-    accessToken: String,
-    accountId: String,
-    accountName: String,
+    accessToken: String, // Long-lived access token (encrypted)
+    accountId: String, // Instagram User ID
+    accountName: String, // Instagram username
+    accountType: String, // BUSINESS or CREATOR
+    pageId: String, // Facebook Page ID
+    tokenType: String, // bearer
     appId: String,
     clientId: String, // OAuth client ID (encrypted)
     clientSecret: String, // OAuth client secret (encrypted)
-    tokenExpiresAt: Date,
+    tokenExpiresAt: Date, // Token expiration date (~60 days)
+    tokenIssuedAt: Date, // When token was issued
+    tokenScopes: String, // Granted scopes (comma-separated)
+    tokenValidated: Boolean, // Whether token was validated
+    tokenValidatedAt: Date, // Last validation timestamp
+    tokenErrorCount: { // Track token errors
+      type: Number,
+      default: 0
+    },
+    lastTokenError: String, // Last error message
+    lastTokenErrorAt: Date, // Last error timestamp
     isActive: {
       type: Boolean,
       default: true
@@ -51,13 +64,15 @@ const userSchema = new mongoose.Schema({
     lastUpdated: Date
   },
   youtubeCredentials: {
-    accessToken: String,
-    refreshToken: String,
-    channelId: String,
-    channelName: String,
+    accessToken: String, // Access token (encrypted, expires in 3600s)
+    refreshToken: String, // Refresh token (encrypted, never expires)
+    channelId: String, // YouTube channel ID
+    channelName: String, // YouTube channel name
+    tokenType: String, // Bearer
+    scope: String, // Granted scopes
     clientId: String, // OAuth client ID (encrypted)
     clientSecret: String, // OAuth client secret (encrypted)
-    tokenExpiresAt: Date,
+    tokenExpiresAt: Date, // Access token expiration date
     isActive: {
       type: Boolean,
       default: true

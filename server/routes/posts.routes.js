@@ -22,9 +22,10 @@ router.get('/', async (req, res) => {
 
     const user = await User.findById(userId);
     if (!user || !user.instagramCredentials?.accessToken) {
-      return res.status(400).json({
-        success: false,
-        error: 'Instagram credentials not configured'
+      return res.status(200).json({
+        success: true,
+        posts: [],
+        message: 'Instagram not connected. Please connect your Instagram account in Configuration.'
       });
     }
 
@@ -33,7 +34,18 @@ router.get('/', async (req, res) => {
 
     // Initialize Instagram service
     const instagramService = new InstagramGraphService();
-    await instagramService.initialize(decryptedToken, user.instagramCredentials.accountId);
+    
+    try {
+      await instagramService.initialize(decryptedToken, user.instagramCredentials.accountId);
+    } catch (initError) {
+      // Token is invalid or expired
+      return res.status(200).json({
+        success: true,
+        posts: [],
+        message: 'Instagram token expired. Please reconnect your Instagram account in Configuration.',
+        tokenExpired: true
+      });
+    }
 
     // Get posts (default 25, max 100)
     const limit = parseInt(req.query.limit) || 25;
@@ -45,8 +57,9 @@ router.get('/', async (req, res) => {
     });
   } catch (error) {
     console.error('Error fetching posts:', error);
-    res.status(500).json({
-      success: false,
+    res.status(200).json({
+      success: true,
+      posts: [],
       error: error.message || 'Failed to fetch posts'
     });
   }

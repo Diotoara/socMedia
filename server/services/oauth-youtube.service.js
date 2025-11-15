@@ -10,10 +10,14 @@ class YouTubeOAuthService {
   constructor() {
     this.oauth2Client = null;
     
-    // Required scopes for YouTube upload and management
+    // Required scopes for YouTube full automation
+    // Upload videos, read channel data, manage comments
     this.requiredScopes = [
-      'https://www.googleapis.com/auth/youtube.upload',
-      'https://www.googleapis.com/auth/youtube.force-ssl'
+      'https://www.googleapis.com/auth/youtube.upload',              // Upload videos
+      'https://www.googleapis.com/auth/youtube.force-ssl',           // Manage channel
+      'https://www.googleapis.com/auth/youtube.readonly',            // Read channel data
+      'https://www.googleapis.com/auth/youtube',                     // Manage comments
+      'https://www.googleapis.com/auth/youtube.channel-memberships.creator' // Manage memberships
     ];
   }
 

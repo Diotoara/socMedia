@@ -34,13 +34,18 @@ class DualPublisherService {
 
   /**
    * Initialize with user credentials
+   * Sanitizes tokens to remove whitespace
    */
   initialize(instagramToken, instagramAccountId, youtubeToken) {
     if (instagramToken && instagramAccountId) {
-      this.instagramService.initialize(instagramToken, instagramAccountId);
+      // Sanitize Instagram token - remove ALL whitespace characters
+      const cleanInstagramToken = instagramToken?.replace(/\s+/g, '').trim();
+      this.instagramService.initialize(cleanInstagramToken, instagramAccountId);
     }
     if (youtubeToken) {
-      this.youtubeService.initialize(youtubeToken);
+      // Sanitize YouTube token - remove ALL whitespace characters
+      const cleanYoutubeToken = youtubeToken?.replace(/\s+/g, '').trim();
+      this.youtubeService.initialize(cleanYoutubeToken);
     }
   }
 
