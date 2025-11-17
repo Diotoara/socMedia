@@ -385,10 +385,23 @@ class InstagramPublisherService {
       return response.data;
     } catch (error) {
       // Handle error code 190 specifically
-      if (error.response?.data?.error?.code === 190) {
-        throw new Error('Your Instagram connection appears broken. Please reconnect your Instagram Business account.');
+      const graphError = error.response?.data?.error;
+      const normalizedError = new Error(
+        graphError?.message
+          ? `Failed to check publishing limit: ${graphError.message}`
+          : error.message || 'Failed to check publishing limit.'
+      );
+
+      // Preserve useful metadata for upstream handlers
+      normalizedError.status = error.response?.status;
+      normalizedError.code = graphError?.code || error.code;
+      normalizedError.type = graphError?.type;
+
+      if (graphError?.code === 190) {
+        normalizedError.message = 'Your Instagram connection appears broken. Please reconnect your Instagram Business account.';
       }
-      throw new Error(`Failed to check publishing limit: ${error.response?.data?.error?.message || error.message}`);
+
+      throw normalizedError;
     }
   }
 

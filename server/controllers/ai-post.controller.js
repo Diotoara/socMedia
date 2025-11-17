@@ -618,21 +618,71 @@ class AIPostController {
         });
       }
 
-      const accessToken = this.encryptionService.decrypt(user.instagramCredentials.accessToken);
+      let accessToken;
+      try {
+        accessToken = this.encryptionService.decrypt(user.instagramCredentials.accessToken);
+      } catch (decryptError) {
+        console.error('[AIPostController] Failed to decrypt Instagram token:', decryptError);
+        return res.status(400).json({
+          success: false,
+          needsConfig: true,
+          error: 'Instagram credentials are invalid. Please reconnect your Instagram Business account.'
+        });
+      }
+
       // Sanitize token - remove ALL whitespace characters
       const cleanToken = accessToken?.replace(/\s+/g, '').trim();
+
+      if (!cleanToken) {
+        console.warn('[AIPostController] Instagram token missing after decryption');
+        return res.status(400).json({
+          success: false,
+          needsConfig: true,
+          error: 'Instagram access token missing. Please reconnect your Instagram Business account.'
+        });
+      }
+
       const instagramAccountId = user.instagramCredentials.accountId;
 
       this.instagramPublisher.initialize(cleanToken, instagramAccountId);
-      const limitInfo = await this.instagramPublisher.checkPublishingLimit();
 
-      return res.json({
-        success: true,
-        limitInfo
-      });
+      try {
+        const limitInfo = await this.instagramPublisher.checkPublishingLimit();
+
+        return res.json({
+          success: true,
+          limitInfo
+        });
+      } catch (serviceError) {
+        console.error('[AIPostController] Error checking Instagram publishing limit:', {
+          message: serviceError.message,
+          code: serviceError.code,
+          status: serviceError.status
+        });
+
+        if (serviceError.code === 190 || serviceError.message?.includes('connection appears broken')) {
+          return res.status(401).json({
+            success: false,
+            needsReconnect: true,
+            error: 'Your Instagram connection appears broken. Please reconnect your Instagram Business account.'
+          });
+        }
+
+        if (serviceError.status && serviceError.status >= 400 && serviceError.status < 500) {
+          return res.status(400).json({
+            success: false,
+            error: serviceError.message || 'Unable to check publishing limit. Please verify your Instagram configuration.'
+          });
+        }
+
+        return res.status(502).json({
+          success: false,
+          error: 'Failed to check publishing limit',
+          details: process.env.NODE_ENV === 'development' ? serviceError.message : undefined
+        });
+      }
     } catch (error) {
-      console.error('[AIPostController] Error checking limit:', error);
-      console.error('[AIPostController] Error stack:', error.stack);
+      console.error('[AIPostController] Unexpected error checking limit:', error);
       
       return res.status(500).json({
         success: false,
