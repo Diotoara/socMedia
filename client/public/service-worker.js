@@ -31,6 +31,11 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
+  // Bypass caching for API calls to ensure fresh data
+  if (event.request.url.includes('/api/')) {
+    return;
+  }
+
   event.respondWith(
     caches.match(event.request)
       .then((response) => {

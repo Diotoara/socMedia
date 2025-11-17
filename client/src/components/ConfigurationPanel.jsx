@@ -1,12 +1,15 @@
-import { useState, useEffect } from 'react';
-import axios from 'axios';
+import { useState, useEffect, useCallback } from 'react';
+import { useNavigate, useLocation } from 'react-router-dom';
+import api from '../utils/api';
 import { useToast } from '../hooks/useToast';
 import ToastContainer from './ToastContainer';
 
 const ConfigurationPanel = () => {
+  const navigate = useNavigate();
+  const location = useLocation();
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState({ type: '', text: '' });
-  const { toasts, showSuccess, showError, showWarning, removeToast } = useToast();
+  const { toasts, showSuccess, showError, removeToast } = useToast();
   const [instagramStatus, setInstagramStatus] = useState({
     connected: false,
     accountName: null,
@@ -18,42 +21,9 @@ const ConfigurationPanel = () => {
     channelId: null
   });
 
-  useEffect(() => {
-    checkConnectionStatus();
-    
-    // Check for OAuth callback parameters
-    const urlParams = new URLSearchParams(window.location.search);
-    
-    if (urlParams.get('instagram') === 'success') {
-      const account = urlParams.get('account');
-      showSuccess(`Instagram connected successfully! Account: @${account}`);
-      window.history.replaceState({}, '', '/dashboard');
-      setTimeout(() => checkConnectionStatus(), 1000);
-    } else if (urlParams.get('instagram') === 'error') {
-      const errorMsg = urlParams.get('message');
-      showError(`Instagram connection failed: ${errorMsg}`);
-      window.history.replaceState({}, '', '/dashboard');
-    }
-    
-    if (urlParams.get('youtube') === 'success') {
-      const channel = urlParams.get('channel');
-      showSuccess(`YouTube connected successfully! Channel: ${channel}`);
-      window.history.replaceState({}, '', '/dashboard');
-      setTimeout(() => checkConnectionStatus(), 1000);
-    } else if (urlParams.get('youtube') === 'error') {
-      const errorMsg = urlParams.get('message');
-      showError(`YouTube connection failed: ${errorMsg}`);
-      window.history.replaceState({}, '', '/dashboard');
-      setTimeout(() => setMessage({ type: '', text: '' }), 5000);
-    }
-  }, []);
-
-  const checkConnectionStatus = async () => {
+  const checkConnectionStatus = useCallback(async () => {
     try {
-      const token = localStorage.getItem('token');
-      const response = await axios.get('/api/credentials', {
-        headers: { Authorization: `Bearer ${token}` }
-      });
+      const response = await api.get('/api/credentials');
 
       if (response.data.success) {
         const { instagram, youtube } = response.data.credentials;
@@ -73,15 +43,57 @@ const ConfigurationPanel = () => {
     } catch (error) {
       console.error('Error checking connection status:', error);
     }
-  };
+  }, []);
+
+  useEffect(() => {
+    checkConnectionStatus();
+  }, [checkConnectionStatus]);
+
+  useEffect(() => {
+    const urlParams = new URLSearchParams(location.search);
+
+    if (!urlParams.toString()) {
+      return;
+    }
+
+    let shouldResetUrl = false;
+    const timers = [];
+
+    if (urlParams.get('instagram') === 'success') {
+      const account = urlParams.get('account');
+      showSuccess(`Instagram connected successfully! Account: @${account}`);
+      timers.push(setTimeout(() => checkConnectionStatus(), 1000));
+      shouldResetUrl = true;
+    } else if (urlParams.get('instagram') === 'error') {
+      const errorMsg = urlParams.get('message');
+      showError(`Instagram connection failed: ${errorMsg}`);
+      shouldResetUrl = true;
+    }
+
+    if (urlParams.get('youtube') === 'success') {
+      const channel = urlParams.get('channel');
+      showSuccess(`YouTube connected successfully! Channel: ${channel}`);
+      timers.push(setTimeout(() => checkConnectionStatus(), 1000));
+      shouldResetUrl = true;
+    } else if (urlParams.get('youtube') === 'error') {
+      const errorMsg = urlParams.get('message');
+      showError(`YouTube connection failed: ${errorMsg}`);
+      shouldResetUrl = true;
+    }
+
+    if (shouldResetUrl) {
+      navigate('/configuration', { replace: true });
+    }
+
+    return () => {
+      timers.forEach((timerId) => clearTimeout(timerId));
+    };
+  }, [location.search, navigate, showError, showSuccess, checkConnectionStatus]);
 
   const handleInstagramLogin = async () => {
     setLoading(true);
     try {
-      const token = localStorage.getItem('token');
-      const response = await axios.get('/api/oauth/instagram/auth-url', {
-        headers: { Authorization: `Bearer ${token}` }
-      });
+      const response = await api.get('/api/oauth/instagram/auth-url');
 
       if (response.data.success) {
         showSuccess('Redirecting to Instagram...');
@@ -107,10 +119,7 @@ const ConfigurationPanel = () => {
   const handleYouTubeLogin = async () => {
     setLoading(true);
     try {
-      const token = localStorage.getItem('token');
-      const response = await axios.get('/api/oauth/youtube/auth-url', {
-        headers: { Authorization: `Bearer ${token}` }
-      });
+      const response = await api.get('/api/oauth/youtube/auth-url');
 
       if (response.data.success) {
         showSuccess('Redirecting to YouTube...');
@@ -140,10 +149,7 @@ const ConfigurationPanel = () => {
 
     setLoading(true);
     try {
-      const token = localStorage.getItem('token');
-      await axios.delete(`/api/credentials/${platform}`, {
-        headers: { Authorization: `Bearer ${token}` }
-      });
+      await api.delete(`/api/credentials/${platform}`);
 
       showSuccess(`${platform} disconnected successfully`);
       await checkConnectionStatus();
