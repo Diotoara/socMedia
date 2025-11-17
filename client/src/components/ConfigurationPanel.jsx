@@ -1,9 +1,12 @@
 import { useState, useEffect } from 'react';
 import axios from 'axios';
+import { useToast } from '../hooks/useToast';
+import ToastContainer from './ToastContainer';
 
 const ConfigurationPanel = () => {
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState({ type: '', text: '' });
+  const { toasts, showSuccess, showError, showWarning, removeToast } = useToast();
   const [instagramStatus, setInstagramStatus] = useState({
     connected: false,
     accountName: null,
@@ -23,30 +26,23 @@ const ConfigurationPanel = () => {
     
     if (urlParams.get('instagram') === 'success') {
       const account = urlParams.get('account');
-      setMessage({ type: 'success', text: `✅ Instagram connected successfully! Account: @${account}` });
+      showSuccess(`Instagram connected successfully! Account: @${account}`);
       window.history.replaceState({}, '', '/dashboard');
-      setTimeout(() => {
-        checkConnectionStatus();
-        setMessage({ type: '', text: '' });
-      }, 3000);
+      setTimeout(() => checkConnectionStatus(), 1000);
     } else if (urlParams.get('instagram') === 'error') {
       const errorMsg = urlParams.get('message');
-      setMessage({ type: 'error', text: `❌ Instagram connection failed: ${errorMsg}` });
+      showError(`Instagram connection failed: ${errorMsg}`);
       window.history.replaceState({}, '', '/dashboard');
-      setTimeout(() => setMessage({ type: '', text: '' }), 5000);
     }
     
     if (urlParams.get('youtube') === 'success') {
       const channel = urlParams.get('channel');
-      setMessage({ type: 'success', text: `✅ YouTube connected successfully! Channel: ${channel}` });
+      showSuccess(`YouTube connected successfully! Channel: ${channel}`);
       window.history.replaceState({}, '', '/dashboard');
-      setTimeout(() => {
-        checkConnectionStatus();
-        setMessage({ type: '', text: '' });
-      }, 3000);
+      setTimeout(() => checkConnectionStatus(), 1000);
     } else if (urlParams.get('youtube') === 'error') {
       const errorMsg = urlParams.get('message');
-      setMessage({ type: 'error', text: `❌ YouTube connection failed: ${errorMsg}` });
+      showError(`YouTube connection failed: ${errorMsg}`);
       window.history.replaceState({}, '', '/dashboard');
       setTimeout(() => setMessage({ type: '', text: '' }), 5000);
     }
@@ -88,10 +84,11 @@ const ConfigurationPanel = () => {
       });
 
       if (response.data.success) {
+        showSuccess('Redirecting to Instagram...');
         // Redirect to Instagram OAuth
         window.location.href = response.data.authUrl;
       } else {
-        setMessage({ type: 'error', text: response.data.error || 'Failed to get authorization URL' });
+        showError(response.data.error || 'Failed to get authorization URL');
         setLoading(false);
       }
     } catch (error) {
@@ -99,9 +96,9 @@ const ConfigurationPanel = () => {
       
       // Check if error is due to missing OAuth config
       if (errorMsg.includes('not configured') || errorMsg.includes('INSTAGRAM_CLIENT_ID')) {
-        setMessage({ type: 'error', text: 'Instagram OAuth not configured. Please contact your administrator.' });
+        showError('Instagram OAuth not configured. Please contact your administrator.');
       } else {
-        setMessage({ type: 'error', text: errorMsg });
+        showError(errorMsg);
       }
       setLoading(false);
     }
@@ -116,10 +113,11 @@ const ConfigurationPanel = () => {
       });
 
       if (response.data.success) {
+        showSuccess('Redirecting to YouTube...');
         // Redirect to YouTube OAuth
         window.location.href = response.data.authUrl;
       } else {
-        setMessage({ type: 'error', text: response.data.error || 'Failed to get authorization URL' });
+        showError(response.data.error || 'Failed to get authorization URL');
         setLoading(false);
       }
     } catch (error) {
@@ -127,9 +125,9 @@ const ConfigurationPanel = () => {
       
       // Check if error is due to missing OAuth config
       if (errorMsg.includes('not configured') || errorMsg.includes('YOUTUBE_CLIENT_ID')) {
-        setMessage({ type: 'error', text: 'YouTube OAuth not configured. Please contact your administrator.' });
+        showError('YouTube OAuth not configured. Please contact your administrator.');
       } else {
-        setMessage({ type: 'error', text: errorMsg });
+        showError(errorMsg);
       }
       setLoading(false);
     }
@@ -147,7 +145,7 @@ const ConfigurationPanel = () => {
         headers: { Authorization: `Bearer ${token}` }
       });
 
-      setMessage({ type: 'success', text: `${platform} disconnected successfully` });
+      showSuccess(`${platform} disconnected successfully`);
       await checkConnectionStatus();
       setTimeout(() => setMessage({ type: '', text: '' }), 3000);
     } catch (error) {
@@ -158,7 +156,9 @@ const ConfigurationPanel = () => {
   };
 
   return (
-    <div className="bg-white rounded-lg shadow-md p-6">
+    <>
+      <ToastContainer toasts={toasts} removeToast={removeToast} />
+      <div className="bg-white rounded-lg shadow-md p-6">
       <div className="mb-6">
         <h2 className="text-2xl font-bold text-gray-800 mb-2">Platform Connections</h2>
         <p className="text-sm text-gray-600">
@@ -359,6 +359,7 @@ const ConfigurationPanel = () => {
         </div>
       </div>
     </div>
+    </>
   );
 };
 
