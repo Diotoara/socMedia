@@ -26,6 +26,11 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
+  // Only handle GET requests (Cache API doesn't support PUT on POST bodies)
+  if (event.request.method !== 'GET') {
+    return;
+  }
+
   event.respondWith(
     caches.match(event.request)
       .then((response) => {
@@ -113,7 +118,7 @@ self.addEventListener('notificationclick', (event) => {
 
   if (event.action === 'explore') {
     event.waitUntil(
-      clients.openWindow('/')
+      self.clients.openWindow('/')
     );
   }
 });
