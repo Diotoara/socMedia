@@ -41,7 +41,6 @@ const userSchema = new mongoose.Schema({
     accountId: String, // Instagram User ID
     accountName: String, // Instagram username
     accountType: String, // BUSINESS or CREATOR
-    pageId: String, // Facebook Page ID
     tokenType: String, // bearer
     appId: String,
     clientId: String, // OAuth client ID (encrypted)

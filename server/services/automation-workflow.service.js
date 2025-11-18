@@ -282,7 +282,24 @@ class AutomationWorkflow {
         }
       );
 
-      state.currentReply = reply;
+      const trimmedReply = typeof reply === 'string' ? reply.trim() : '';
+
+      if (!trimmedReply) {
+        console.warn('[AutomationWorkflow] Generated reply was empty. Marking comment as processed to avoid retry loop.');
+        await this.storageService.markCommentProcessed(comment.id, {
+          postId: comment.postId,
+          username: comment.username,
+          text: comment.text,
+          reply: null,
+          status: 'skipped'
+        });
+        state.pendingComments.shift();
+        state.currentComment = null;
+        state.currentReply = null;
+        return state;
+      }
+
+      state.currentReply = trimmedReply;
       state.stats.repliesGenerated++;
 
       // Log reply generation
@@ -292,12 +309,12 @@ class AutomationWorkflow {
         details: {
           commentId: comment.id,
           commentText: comment.text,
-          reply: reply,
+          reply: trimmedReply,
           tone: this.replyTone
         }
       });
 
-      console.log(`[AutomationWorkflow] Generated reply: "${reply}"`);
+      console.log(`[AutomationWorkflow] Generated reply: "${trimmedReply}"`);
 
       return state;
     } catch (error) {
@@ -396,7 +413,8 @@ class AutomationWorkflow {
       const errorResult = await this.errorHandler.handleError(error, {
         node: 'postReply',
         operation: 'postReplyNode',
-        commentId: state.currentComment?.id
+        commentId: state.currentComment?.id,
+        attemptNumber: this.errorHandler.maxRetries
       });
       
       state.errors.push({
@@ -407,6 +425,25 @@ class AutomationWorkflow {
         timestamp: new Date(),
         action: errorResult.action
       });
+
+      if (
+        state.currentComment &&
+        errorResult.action !== ErrorAction.STOP_AUTOMATION &&
+        errorResult.action !== ErrorAction.WAIT_AND_RETRY &&
+        errorResult.action !== ErrorAction.RETRY_WITH_BACKOFF
+      ) {
+        try {
+          await this.storageService.markCommentProcessed(state.currentComment.id, {
+            postId: state.currentComment.postId,
+            username: state.currentComment.username,
+            text: state.currentComment.text,
+            reply: state.currentReply || null,
+            status: errorResult.action === ErrorAction.SKIP_AND_CONTINUE ? 'failed' : 'skipped'
+          });
+        } catch (markError) {
+          console.error('[AutomationWorkflow] Failed to mark comment as processed after post error:', markError.message);
+        }
+      }
 
       // Remove failed comment from pending (skip and continue)
       if (state.pendingComments.length > 0) {

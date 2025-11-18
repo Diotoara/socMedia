@@ -58,11 +58,19 @@ class AIReplyService {
     for (let attempt = 1; attempt <= this.MAX_RETRIES; attempt++) {
       try {
         const response = await this.model.invoke(prompt);
-        
+
         // Extract text from response
-        let replyText = typeof response.content === 'string' 
-          ? response.content 
-          : response.content.toString();
+        let replyText = this.extractReplyText(response);
+
+        if (replyText && /^\[object\b/i.test(replyText.trim())) {
+          replyText = '';
+        }
+
+        if (!replyText) {
+          lastError = new Error('Empty reply from Gemini model');
+          console.warn(`[AIReplyService] Empty reply from Gemini (attempt ${attempt}/${this.MAX_RETRIES}). Retrying...`);
+          continue;
+        }
 
         // Clean up the reply
         replyText = replyText.trim();
@@ -86,8 +94,19 @@ class AIReplyService {
       }
     }
 
-    // All retries failed
-    throw new Error(`Failed to generate reply after ${this.MAX_RETRIES} attempts: ${lastError.message}`);
+    // All retries failed or produced empty responses — use fallback before erroring
+    const fallbackReply = this.buildFallbackReply(commentText, tone, context);
+    if (fallbackReply) {
+      console.warn('[AIReplyService] Using fallback reply template after repeated empty responses from Gemini.');
+      const trimmedFallback = fallbackReply.trim();
+      if (!this.validateReplyLength(trimmedFallback)) {
+        return this.truncateReply(trimmedFallback);
+      }
+      return trimmedFallback;
+    }
+
+    const errorMessage = lastError ? lastError.message : 'Empty reply from AI model';
+    throw new Error(`Failed to generate reply after ${this.MAX_RETRIES} attempts: ${errorMessage}`);
   }
 
   /**
@@ -116,6 +135,126 @@ class AIReplyService {
   }
 
   /**
+   * Extract a usable text reply from the Gemini response.
+   * @private
+   */
+  extractReplyText(response) {
+    if (!response) {
+      return '';
+    }
+
+    if (typeof response === 'string') {
+      return response;
+    }
+
+    const candidates = new Set();
+    const visited = new Set();
+
+    const addCandidate = (value) => {
+      if (!value) {
+        return;
+      }
+
+      if (typeof value === 'string') {
+        const trimmed = value.trim();
+        if (trimmed.length > 0) {
+          candidates.add(trimmed);
+        }
+        return;
+      }
+
+      if (Array.isArray(value)) {
+        value.forEach(addCandidate);
+        return;
+      }
+
+      if (typeof value === 'object') {
+        if (visited.has(value)) {
+          return;
+        }
+        visited.add(value);
+
+        if (typeof value.text === 'string') {
+          addCandidate(value.text);
+        } else if (Array.isArray(value.text)) {
+          addCandidate(value.text);
+        }
+
+        if (typeof value.value === 'string') {
+          addCandidate(value.value);
+        } else if (Array.isArray(value.value)) {
+          addCandidate(value.value);
+        }
+
+        if (typeof value.parts === 'string') {
+          addCandidate(value.parts);
+        } else if (Array.isArray(value.parts)) {
+          addCandidate(value.parts);
+        }
+
+        if (typeof value.message === 'string') {
+          addCandidate(value.message);
+        }
+
+        if (value.content && value.content !== value) {
+          collectContent(value.content);
+        }
+
+        return;
+      }
+    };
+
+    const collectContent = (content) => {
+      if (!content) return;
+
+      const items = Array.isArray(content) ? content : [content];
+      for (const item of items) {
+        if (!item) continue;
+        if (typeof item === 'string') {
+          addCandidate(item);
+          continue;
+        }
+        if (typeof item.text === 'string') {
+          addCandidate(item.text);
+        }
+        if (typeof item.value === 'string') {
+          addCandidate(item.value);
+        }
+        if (Array.isArray(item.content)) {
+          collectContent(item.content);
+        }
+      }
+    };
+
+    addCandidate(response.text);
+    addCandidate(response.output_text);
+    addCandidate(response.outputText);
+    addCandidate(response.response_text);
+
+    if (typeof response.content === 'string') {
+      addCandidate(response.content);
+    }
+
+    collectContent(response.content);
+    collectContent(response?.lc_kwargs?.content);
+    collectContent(response?.additional_kwargs?.content);
+
+    if (response?.response_metadata?.answer) {
+      addCandidate(response.response_metadata.answer);
+    }
+
+    if (candidates.size === 0 && typeof response.toString === 'function') {
+      addCandidate(response.toString());
+    }
+
+    for (const candidate of candidates) {
+      return candidate;
+    }
+
+    return '';
+  }
+
+  /**
    * Get tone-specific instructions
    * @private
    */
@@ -129,6 +268,30 @@ class AIReplyService {
     };
 
     return toneTemplates[tone];
+  }
+
+  /**
+   * Provide a safe fallback reply if the model returns empty text.
+   * @private
+   */
+  buildFallbackReply(commentText, tone, context) {
+    const toneTemplates = {
+      friendly: "Thanks so much for your comment! 😊 We're glad to hear from you.",
+      formal: 'Thank you for your comment. We appreciate your support.',
+      professional: 'Thanks for reaching out. We appreciate your feedback!'
+    };
+
+    const baseReply = toneTemplates[tone] || toneTemplates.friendly;
+    const trimmedComment = typeof commentText === 'string' ? commentText.trim() : '';
+
+    if (!trimmedComment) {
+      return baseReply;
+    }
+
+    const snippet = trimmedComment.length > 80 ? `${trimmedComment.slice(0, 77)}...` : trimmedComment;
+    const postDescriptor = context?.postType ? context.postType.toLowerCase() : 'post';
+
+    return `${baseReply} Your message "${snippet}" means a lot to us on this ${postDescriptor}.`;
   }
 
   /**

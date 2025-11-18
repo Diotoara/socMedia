@@ -14,12 +14,16 @@ const axios = require('axios');
 
 const REQUIRED_SCOPES = [
   'instagram_business_basic',
-  'instagram_business_manage_comments'
+  'instagram_business_manage_comments',
+  'instagram_business_manage_messages',
+  'instagram_business_content_publish'
 ];
 
 const OLD_SCOPES = {
   'business_basic': 'instagram_business_basic',
-  'business_manage_comments': 'instagram_business_manage_comments'
+  'business_manage_comments': 'instagram_business_manage_comments',
+  'business_manage_messages': 'instagram_business_manage_messages',
+  'business_content_publish': 'instagram_business_content_publish'
 };
 
 async function checkTokenScopes(accessToken) {

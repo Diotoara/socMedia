@@ -196,11 +196,9 @@ class OAuthController {
         
         // Provide helpful error message based on the error type
         let userMessage = validation.error;
-        if (validation.error.includes('No Facebook Pages found')) {
-          userMessage = 'Instagram Business account required. Please: 1) Convert your Instagram to Business/Creator account, 2) Create a Facebook Page, 3) Connect Instagram to the Page. See documentation for details.';
-        } else if (validation.error.includes('No Instagram Business Account')) {
-          userMessage = 'Instagram not connected to Facebook Page. Please connect your Instagram Business account to a Facebook Page in Instagram settings.';
-        } else if (validation.error.includes('Invalid access token') || validation.error.includes('Cannot parse')) {
+        if (validation.error.includes('Business or Creator')) {
+          userMessage = 'Instagram Business or Creator account required. Please switch your Instagram account type and retry the connection.';
+        } else if (validation.error.includes('Invalid token') || validation.error.includes('Cannot parse')) {
           userMessage = 'Session expired or token corrupted. Please reconnect your Instagram account.';
         }
         
@@ -233,12 +231,10 @@ class OAuthController {
       // Encrypt and save token with all required fields including debug info
       const encryptedToken = encryptionService.encrypt(longLivedResult.accessToken);
       // Handle expires_at = 0 (means token doesn't expire - long-lived token)
-      const expiresAt = longLivedResult.expiresAt && longLivedResult.expiresAt > 0
-        ? new Date(longLivedResult.expiresAt * 1000) 
+      const expiresAt = validation.expiresAt && validation.expiresAt > 0
+        ? new Date(validation.expiresAt * 1000)
         : new Date(Date.now() + (longLivedResult.expiresIn || 5184000) * 1000); // Default 60 days
-      const issuedAt = longLivedResult.issuedAt 
-        ? new Date(longLivedResult.issuedAt * 1000) 
-        : new Date();
+      const issuedAt = new Date();
 
       // Initialize instagramCredentials if not exists
       if (!user.instagramCredentials) {
@@ -248,17 +244,17 @@ class OAuthController {
       user.instagramCredentials.accessToken = encryptedToken;
       user.instagramCredentials.accountId = validation.accountId; // IG User ID
       user.instagramCredentials.accountName = validation.username;
-      user.instagramCredentials.pageId = validation.pageId; // Facebook Page ID
+      user.instagramCredentials.accountType = validation.accountType || null;
       user.instagramCredentials.tokenType = longLivedResult.tokenType || 'bearer';
       user.instagramCredentials.tokenExpiresAt = expiresAt;
       user.instagramCredentials.tokenIssuedAt = issuedAt;
-      user.instagramCredentials.tokenScopes = longLivedResult.scopes?.join(',') || 'instagram_basic,instagram_manage_messages,pages_read_engagement,pages_show_list,business_management';
+      user.instagramCredentials.tokenScopes = validation.scopes?.join(',') || instagramOAuth.requiredScopes.join(',');
       user.instagramCredentials.tokenValidated = true;
       user.instagramCredentials.tokenValidatedAt = new Date();
       user.instagramCredentials.tokenErrorCount = 0; // Reset error count on successful connection
       user.instagramCredentials.lastTokenError = null;
-      user.instagramCredentials.dataAccessExpiresAt = longLivedResult.dataAccessExpiresAt 
-        ? new Date(longLivedResult.dataAccessExpiresAt * 1000) 
+      user.instagramCredentials.dataAccessExpiresAt = validation.dataAccessExpiresAt 
+        ? new Date(validation.dataAccessExpiresAt * 1000) 
         : null;
       user.instagramCredentials.isActive = true;
       user.instagramCredentials.lastUpdated = new Date();

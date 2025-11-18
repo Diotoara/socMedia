@@ -3,39 +3,40 @@ const crypto = require('crypto');
 
 /**
  * Instagram OAuth Service
- * Handles OAuth 2.0 flow for Instagram Graph API
- * 
+ * Handles OAuth 2.0 flow for Instagram Business Login (Instagram Login)
+ *
  * FLOW:
  * 1. User clicks "Connect Instagram" → Frontend calls GET /api/oauth/instagram/auth-url
- * 2. Backend generates OAuth URL with YOUR credentials (from .env)
- * 3. User redirected to: https://www.facebook.com/v24.0/dialog/oauth
- * 4. User approves permissions
- * 5. Facebook redirects to: http://your-backend.com/api/oauth/instagram/callback?code=ABC123
- * 6. Backend exchanges code for access token
- * 7. Backend gets long-lived token (60 days)
- * 8. Backend validates token and gets Instagram Business Account info
- * 9. Token encrypted and saved to database
- * 10. User redirected back to frontend dashboard
- * 
+ * 2. Backend generates Instagram Login URL with required scopes
+ * 3. User redirected to https://www.instagram.com/oauth/authorize and approves permissions
+ * 4. Instagram redirects to: https://your-backend.com/api/oauth/instagram/callback?code=ABC123
+ * 5. Backend exchanges authorization code for a short-lived Instagram User access token
+ * 6. Backend exchanges short-lived token for long-lived token (≈60 days)
+ * 7. Backend validates token, fetches Instagram Professional account info, and stores credentials
+ * 8. User redirected back to frontend dashboard
+ *
  * RESULT: User connected! No manual credential entry needed!
  */
 class InstagramOAuthService {
   constructor() {
-    // Use Facebook Graph API v24.0 consistently across all endpoints
+    // Instagram Login endpoints
     this.apiVersion = 'v24.0';
-    this.authUrl = `https://www.facebook.com/${this.apiVersion}/dialog/oauth`;
-    this.tokenUrl = `https://graph.facebook.com/${this.apiVersion}/oauth/access_token`;
-    this.graphApiUrl = `https://graph.facebook.com/${this.apiVersion}`;
-    this.debugTokenUrl = `https://graph.facebook.com/${this.apiVersion}/debug_token`;
+    this.authUrl = 'https://www.instagram.com/oauth/authorize';
+    this.shortLivedTokenUrl = 'https://api.instagram.com/oauth/access_token';
+    this.longLivedTokenUrl = 'https://graph.instagram.com/access_token';
+    this.refreshTokenUrl = 'https://graph.instagram.com/refresh_access_token';
+    this.graphInstagramApiUrl = 'https://graph.instagram.com';
+    this.graphFacebookApiUrl = `https://graph.facebook.com/${this.apiVersion}`;
+    this.graphApiUrl = this.graphFacebookApiUrl; // Backwards compatibility for downstream services
+    this.debugTokenUrl = `${this.graphFacebookApiUrl}/debug_token`;
     
     // Required scopes for Instagram Graph API
     // Instagram works only with Instagram Professional (Business/Creator) accounts
     this.requiredScopes = [
-      'instagram_basic',                          // Read IG profile, media, comments
-      'instagram_manage_messages',                // Send/receive messages (DMs)
-      'pages_read_engagement',                    // Read engagement metrics
-      'pages_show_list',                          // List Facebook Pages
-      'business_management'                       // Manage business assets
+      'instagram_business_basic',            // Read IG professional profile & media
+      'instagram_business_manage_comments',  // Manage comments
+      'instagram_business_manage_messages',  // Manage private replies
+      'instagram_business_content_publish'   // Publish content on behalf of the account
     ];
   }
 
@@ -67,33 +68,43 @@ class InstagramOAuthService {
     try {
       const params = new URLSearchParams({
         client_id: clientId,
-        client_secret: clientSecret,
         grant_type: 'authorization_code',
         redirect_uri: redirectUri,
         code: code
       });
 
-      const response = await axios.get(`${this.tokenUrl}?${params.toString()}`);
+      const response = await axios.post(this.shortLivedTokenUrl, params);
+
+      // Support both legacy and new Instagram Login response formats
+      let accessToken = response.data.access_token;
+      let userId = response.data.user_id;
+      let grantedPermissions = response.data.scope || response.data.permissions;
+
+      if (!accessToken && Array.isArray(response.data.data) && response.data.data.length > 0) {
+        const payload = response.data.data[0];
+        accessToken = payload.access_token;
+        userId = payload.user_id;
+        grantedPermissions = payload.permissions || payload.scope;
+      }
 
       // Sanitize token - remove ALL whitespace characters
-      const accessToken = response.data.access_token?.replace(/\s+/g, '').trim();
-      const expiresIn = response.data.expires_in;
-      
+      accessToken = accessToken?.replace(/\s+/g, '').trim();
+
       console.log('[InstagramOAuth] Token exchange successful');
       console.log('[InstagramOAuth] Token length:', accessToken?.length);
-      console.log('[InstagramOAuth] Token type:', response.data.token_type);
-      console.log('[InstagramOAuth] Expires in:', expiresIn, 'seconds');
-      
-      // Verify expires_in is present
-      if (!expiresIn) {
-        console.warn('[InstagramOAuth] WARNING: No expires_in in token response - may indicate wrong grant type');
-      }
+      console.log('[InstagramOAuth] User ID:', userId);
+
+      const permissionsArray = typeof grantedPermissions === 'string'
+        ? grantedPermissions.split(/[\s,]+/).filter(Boolean)
+        : Array.isArray(grantedPermissions)
+          ? grantedPermissions
+          : [];
 
       return {
         success: true,
         accessToken: accessToken,
-        tokenType: response.data.token_type,
-        expiresIn: expiresIn || 5184000 // Default 60 days if not provided
+        userId,
+        permissions: permissionsArray
       };
     } catch (error) {
       console.error('[InstagramOAuth] Token exchange error:', error.response?.data || error.message);
@@ -111,84 +122,35 @@ class InstagramOAuthService {
   async getLongLivedToken(clientId, clientSecret, shortLivedToken) {
     try {
       const params = new URLSearchParams({
-        grant_type: 'fb_exchange_token',
-        client_id: clientId,
+        grant_type: 'ig_exchange_token',
         client_secret: clientSecret,
-        fb_exchange_token: shortLivedToken
+        access_token: shortLivedToken
       });
 
-      const response = await axios.get(`${this.tokenUrl}?${params.toString()}`);
+      const response = await axios.get(`${this.longLivedTokenUrl}?${params.toString()}`);
+
+      // Support both legacy and new response structures
+      let accessToken = response.data.access_token;
+      let expiresIn = response.data.expires_in;
+
+      if (!accessToken && Array.isArray(response.data.data) && response.data.data.length > 0) {
+        const payload = response.data.data[0];
+        accessToken = payload.access_token;
+        expiresIn = payload.expires_in;
+      }
 
       // Sanitize token - remove ALL whitespace characters
-      const accessToken = response.data.access_token?.replace(/\s+/g, '').trim();
-      const expiresIn = response.data.expires_in;
-      
+      accessToken = accessToken?.replace(/\s+/g, '').trim();
+
       console.log('[InstagramOAuth] Long-lived token exchange successful');
       console.log('[InstagramOAuth] Long-lived token length:', accessToken?.length);
       console.log('[InstagramOAuth] Expires in:', expiresIn, 'seconds');
-      
-      // Verify expires_in is present
-      if (!expiresIn) {
-        console.warn('[InstagramOAuth] WARNING: No expires_in in long-lived token response');
-      }
-
-      // Immediately validate token with debug_token endpoint
-      const appAccessToken = `${clientId}|${clientSecret}`;
-      const debugResult = await this.debugToken(accessToken, appAccessToken);
-      
-      if (!debugResult.success) {
-        console.error('[InstagramOAuth] Token debug failed after exchange:', debugResult.error);
-        return {
-          success: false,
-          error: 'Token validation failed after exchange. Please try reconnecting.'
-        };
-      }
-      
-      if (!debugResult.isValid) {
-        console.error('[InstagramOAuth] Token is not valid according to debug_token');
-        return {
-          success: false,
-          error: 'Your connection appears broken. Please reconnect your Instagram Business account.'
-        };
-      }
-      
-      // Verify token has required scopes
-      const hasRequiredScopes = this.requiredScopes.every(scope => 
-        debugResult.scopes?.includes(scope)
-      );
-      
-      if (!hasRequiredScopes) {
-        console.warn('[InstagramOAuth] Token missing required scopes:', {
-          required: this.requiredScopes,
-          actual: debugResult.scopes
-        });
-      }
-      
-      // Verify token is not expired
-      // Note: expires_at = 0 means token doesn't expire (long-lived token)
-      if (debugResult.expiresAt && debugResult.expiresAt > 0 && debugResult.expiresAt * 1000 < Date.now()) {
-        console.error('[InstagramOAuth] Token already expired');
-        return {
-          success: false,
-          error: 'Token expired. Please reconnect your Instagram Business account.'
-        };
-      }
-      
-      console.log('[InstagramOAuth] Token validated successfully:', {
-        isValid: debugResult.isValid,
-        expiresAt: debugResult.expiresAt === 0 ? 'Never (long-lived)' : new Date(debugResult.expiresAt * 1000).toISOString(),
-        scopes: debugResult.scopes
-      });
 
       return {
         success: true,
         accessToken: accessToken,
         tokenType: response.data.token_type || 'bearer',
-        expiresIn: expiresIn || 5184000, // ~60 days
-        issuedAt: debugResult.issuedAt,
-        expiresAt: debugResult.expiresAt,
-        scopes: debugResult.scopes,
-        dataAccessExpiresAt: debugResult.dataAccessExpiresAt
+        expiresIn: expiresIn || 5184000
       };
     } catch (error) {
       console.error('[InstagramOAuth] Long-lived token error:', error.response?.data || error.message);
@@ -224,8 +186,7 @@ class InstagramOAuthService {
         access_token: cleanToken
       });
 
-      // Use consistent API version for token refresh
-      const response = await axios.get(`${this.graphApiUrl}/refresh_access_token?${params.toString()}`);
+      const response = await axios.get(`${this.refreshTokenUrl}?${params.toString()}`);
 
       // Sanitize returned token
       const newAccessToken = response.data.access_token?.replace(/\s+/g, '').trim();
@@ -260,16 +221,14 @@ class InstagramOAuthService {
    * First get Facebook Pages, then get Instagram Business Account
    * Uses consistent v24.0 API endpoints
    */
-  async validateToken(accessToken) {
+  async validateToken(accessToken, options = {}) {
     try {
-      // Sanitize token - remove ALL whitespace characters (spaces, newlines, tabs, etc.)
       const cleanToken = accessToken?.replace(/\s+/g, '').trim();
-      
+      const appAccessToken = options.appAccessToken?.trim();
+
       console.log('[InstagramOAuth] Validating token...');
       console.log('[InstagramOAuth] Token length:', cleanToken?.length);
       console.log('[InstagramOAuth] Token preview:', cleanToken?.substring(0, 20) + '...');
-      console.log('[InstagramOAuth] Token has whitespace:', accessToken !== cleanToken);
-      console.log('[InstagramOAuth] Original token length:', accessToken?.length);
 
       if (!cleanToken || cleanToken.length < 50) {
         return {
@@ -278,68 +237,61 @@ class InstagramOAuthService {
         };
       }
 
-      // Step 1: Get Facebook Pages using consistent API version
-      console.log('[InstagramOAuth] Step 1: Getting Facebook Pages...');
-      const pagesResponse = await axios.get(`${this.graphApiUrl}/me/accounts`, {
+      // Step 1: Fetch Instagram account basic info using graph.instagram.com
+      console.log('[InstagramOAuth] Step 1: Fetching Instagram profile via graph.instagram.com/me...');
+      const profileResponse = await axios.get(`${this.graphInstagramApiUrl}/me`, {
         params: {
+          fields: 'id,username,account_type,media_count',
           access_token: cleanToken
         }
       });
 
-      console.log('[InstagramOAuth] Pages found:', pagesResponse.data.data?.length || 0);
+      const accountId = profileResponse.data.id;
+      const username = profileResponse.data.username;
+      const mediaCount = profileResponse.data.media_count;
 
-      if (!pagesResponse.data.data || pagesResponse.data.data.length === 0) {
+      console.log('[InstagramOAuth] Profile fetched:', {
+        accountId,
+        username,
+        accountType: profileResponse.data.account_type
+      });
+
+      if (!accountId) {
         return {
           success: false,
-          error: 'No Facebook Pages found. Instagram Business requires a connected Facebook Page.'
+          error: 'Unable to retrieve Instagram account information. Ensure the account is Business or Creator.'
         };
       }
 
-      // Step 2: Get Instagram Business Account from first page
-      const pageId = pagesResponse.data.data[0].id;
-      const pageName = pagesResponse.data.data[0].name;
-      console.log('[InstagramOAuth] Step 2: Checking page for Instagram account...');
-      console.log('[InstagramOAuth] Page ID:', pageId);
-      console.log('[InstagramOAuth] Page Name:', pageName);
-
-      const igAccountResponse = await axios.get(`${this.graphApiUrl}/${pageId}`, {
+      // Step 2: Debug token to validate scopes and expiration
+      console.log('[InstagramOAuth] Step 2: Debugging token via debug_token...');
+      const debugResponse = await axios.get(this.debugTokenUrl, {
         params: {
-          fields: 'instagram_business_account',
-          access_token: cleanToken
+          input_token: cleanToken,
+          access_token: appAccessToken || cleanToken
         }
       });
 
-      console.log('[InstagramOAuth] Instagram account response:', igAccountResponse.data);
+      const debugData = debugResponse.data.data;
+      const scopes = debugData.scopes || [];
+      const hasRequiredScopes = this.requiredScopes.every(scope => scopes.includes(scope));
 
-      if (!igAccountResponse.data.instagram_business_account) {
-        return {
-          success: false,
-          error: 'No Instagram Business Account connected to this Facebook Page.'
-        };
+      if (!hasRequiredScopes) {
+        console.warn('[InstagramOAuth] Token missing required scopes:', {
+          required: this.requiredScopes,
+          actual: scopes
+        });
       }
-
-      const igAccountId = igAccountResponse.data.instagram_business_account.id;
-      console.log('[InstagramOAuth] Step 3: Getting Instagram account details...');
-      console.log('[InstagramOAuth] Instagram Account ID:', igAccountId);
-
-      // Step 3: Get Instagram account details using Facebook Graph API (not graph.instagram.com)
-      // Instagram Graph API endpoints are accessed through graph.facebook.com
-      // Note: account_type is not available in v24.0 API for IGUser nodes
-      const igDetailsResponse = await axios.get(`${this.graphApiUrl}/${igAccountId}`, {
-        params: {
-          fields: 'id,username,media_count',
-          access_token: cleanToken
-        }
-      });
-
-      console.log('[InstagramOAuth] Instagram details:', igDetailsResponse.data);
 
       return {
         success: true,
-        accountId: igDetailsResponse.data.id,
-        username: igDetailsResponse.data.username,
-        mediaCount: igDetailsResponse.data.media_count,
-        pageId: pageId
+        accountId,
+        username,
+        mediaCount,
+        accountType: profileResponse.data.account_type || null,
+        scopes,
+        expiresAt: debugData.expires_at,
+        dataAccessExpiresAt: debugData.data_access_expires_at
       };
     } catch (error) {
       console.error('[InstagramOAuth] Token validation error:', {

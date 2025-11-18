@@ -24,12 +24,14 @@ const REDIRECT_URI = process.env.OAUTH_REDIRECT_URI || 'http://localhost:3001/au
 
 // NEW scope values (as of mid-2024)
 // Old scopes deprecated on January 27, 2025
-const SCOPES = [
-  'instagram_business_basic',              // Replaces: business_basic
-  'instagram_business_manage_comments',    // Replaces: business_manage_comments
-  'instagram_business_manage_messages',    // Replaces: business_manage_messages
-  'instagram_business_content_publish'     // Replaces: business_content_publish (optional)
-].join(',');
+const REQUIRED_SCOPES = [
+  'instagram_business_basic',
+  'instagram_business_manage_comments',
+  'instagram_business_manage_messages',
+  'instagram_business_content_publish'
+];
+
+const SCOPES = REQUIRED_SCOPES.join(',');
 
 if (!APP_ID || !APP_SECRET) {
   console.error('❌ Missing required environment variables:');
