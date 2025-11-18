@@ -77,8 +77,12 @@ app.use(express.json({
 }));
 app.use(cookieParser());
 
+// Trust proxy (required for Render.com and other reverse proxies)
+app.set('trust proxy', 1);
+
 // Session middleware (for OAuth state management)
 app.use(session({
+  name: 'oauth.sid',
   secret: process.env.JWT_SECRET || 'your-secret-key-change-in-production',
   resave: false,
   saveUninitialized: false,
@@ -90,7 +94,8 @@ app.use(session({
     secure: process.env.NODE_ENV === 'production', // HTTPS only in production
     httpOnly: true,
     sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',
-    maxAge: 1000 * 60 * 60 * 24 // 24 hours
+    maxAge: 1000 * 60 * 60 * 24, // 24 hours
+    domain: process.env.NODE_ENV === 'production' ? '.onrender.com' : undefined
   }
 }));
 

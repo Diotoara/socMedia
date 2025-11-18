@@ -68,6 +68,7 @@ class InstagramOAuthService {
     try {
       const params = new URLSearchParams({
         client_id: clientId,
+        client_secret: clientSecret,
         grant_type: 'authorization_code',
         redirect_uri: redirectUri,
         code: code
