@@ -7,7 +7,7 @@ const axios = require('axios');
  */
 class InstagramGraphService {
   constructor() {
-    this.baseUrl = 'https://graph.instagram.com/v24.0'; // Latest stable version
+    this.baseUrl = 'https://graph.facebook.com/v24.0'; // Latest stable version
     this.accessToken = null;
     this.instagramAccountId = null;
     this.isAuthenticated = false;
@@ -24,7 +24,7 @@ class InstagramGraphService {
     
     // Verify token is valid
     try {
-      await this.verifyToken();
+      await this.verifyToken(instagramAccountId);
       this.isAuthenticated = true;
       console.log('[InstagramGraphService] Initialized successfully');
       return true;
@@ -37,12 +37,12 @@ class InstagramGraphService {
   /**
    * Verify access token is valid
    */
-  async verifyToken() {
+  async verifyToken(accountId = 'me') {
     try {
-      const response = await axios.get(`${this.baseUrl}/me`, {
+      const response = await axios.get(`${this.baseUrl}/${accountId}`, {
         params: {
           access_token: this.accessToken,
-          fields: 'user_id,username'
+          fields: 'id,username'
         }
       });
       return response.data;

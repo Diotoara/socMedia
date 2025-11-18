@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { logsAPI } from '../utils/api';
 import { useApp } from '../context/AppContext';
 
@@ -6,6 +6,7 @@ const ActivityLog = ({ isAutomationActive }) => {
   const { toast } = useApp();
   const [logs, setLogs] = useState([]);
   const [loading, setLoading] = useState(false);
+  const [deletingLogId, setDeletingLogId] = useState(null);
   const [pagination, setPagination] = useState({
     currentPage: 1,
     totalPages: 1,
@@ -21,7 +22,7 @@ const ActivityLog = ({ isAutomationActive }) => {
   });
 
   // Fetch logs from API
-  const fetchLogs = async (page = 1) => {
+  const fetchLogs = useCallback(async (page = 1) => {
     setLoading(true);
     
     try {
@@ -29,7 +30,7 @@ const ActivityLog = ({ isAutomationActive }) => {
         page,
         limit: pagination.limit
       };
-      
+
       // Add filters if set
       if (filters.type) params.type = filters.type;
       if (filters.startDate) params.startDate = filters.startDate;
@@ -52,12 +53,30 @@ const ActivityLog = ({ isAutomationActive }) => {
     } finally {
       setLoading(false);
     }
-  };
+  }, [filters, pagination.limit, toast]);
+
+  const handleDeleteLog = useCallback(async (logId) => {
+    if (!logId) return;
+    const confirmed = window.confirm('Are you sure you want to delete this log entry?');
+    if (!confirmed) return;
+
+    try {
+      setDeletingLogId(logId);
+      await logsAPI.deleteLog(logId);
+      setLogs(prev => prev.filter(log => (log._id || log.id) !== logId));
+      toast.showSuccess('Log deleted successfully');
+    } catch (err) {
+      console.error('Error deleting log:', err);
+      toast.showError('Failed to delete log');
+    } finally {
+      setDeletingLogId(null);
+    }
+  }, [toast]);
 
   // Initial fetch on component mount
   useEffect(() => {
     fetchLogs();
-  }, []);
+  }, [fetchLogs]);
 
   // Auto-refresh logs every 10 seconds when automation is active
   useEffect(() => {
@@ -71,7 +90,7 @@ const ActivityLog = ({ isAutomationActive }) => {
     return () => {
       if (interval) clearInterval(interval);
     };
-  }, [isAutomationActive, pagination.currentPage]);
+  }, [isAutomationActive, pagination.currentPage, fetchLogs]);
 
   // Handle filter changes
   const handleFilterChange = (filterName, value) => {
@@ -284,11 +303,16 @@ const ActivityLog = ({ isAutomationActive }) => {
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                   Message
                 </th>
+                <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  Actions
+                </th>
               </tr>
             </thead>
             <tbody className="bg-white divide-y divide-gray-200">
-              {logs.map((log) => (
-                <tr key={log.id} className="hover:bg-gray-50 transition-colors">
+              {logs.map((log) => {
+                const logId = log._id || log.id;
+                return (
+                <tr key={logId} className="hover:bg-gray-50 transition-colors">
                   <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
                     {formatTimestamp(log.timestamp)}
                   </td>
@@ -313,8 +337,20 @@ const ActivityLog = ({ isAutomationActive }) => {
                       )}
                     </div>
                   </td>
+                  <td className="px-6 py-4 whitespace-nowrap text-right text-sm">
+                    <button
+                      onClick={() => handleDeleteLog(logId)}
+                      disabled={deletingLogId === logId}
+                      className="inline-flex items-center px-3 py-1.5 border border-red-200 text-red-600 rounded-md hover:bg-red-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                    >
+                      <svg className="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V5a2 2 0 00-2-2h-2a2 2 0 00-2 2v2M4 7h16" />
+                      </svg>
+                      {deletingLogId === logId ? 'Deleting…' : 'Delete'}
+                    </button>
+                  </td>
                 </tr>
-              ))}
+              )})}
             </tbody>
           </table>
         )}

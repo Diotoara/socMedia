@@ -118,6 +118,51 @@ class LogsController {
       });
     }
   }
+
+  /**
+   * DELETE /api/logs/:logId - Delete a single log entry
+   */
+  async deleteLog(req, res) {
+    try {
+      const userId = req.userId || req.user?._id;
+      const { logId } = req.params;
+
+      if (!userId) {
+        return res.status(401).json({
+          success: false,
+          error: 'User not authenticated'
+        });
+      }
+
+      if (!logId) {
+        return res.status(400).json({
+          success: false,
+          error: 'Log ID is required'
+        });
+      }
+
+      const result = await ActivityLog.deleteOne({ _id: logId, userId });
+
+      if (result.deletedCount === 0) {
+        return res.status(404).json({
+          success: false,
+          error: 'Log entry not found'
+        });
+      }
+
+      res.json({
+        success: true,
+        message: 'Log entry deleted successfully',
+        deletedCount: result.deletedCount
+      });
+    } catch (error) {
+      console.error('Error deleting log entry:', error);
+      res.status(500).json({
+        success: false,
+        error: 'Failed to delete log entry'
+      });
+    }
+  }
 }
 
 module.exports = LogsController;

@@ -83,7 +83,7 @@ const PostGenerationProgress = ({ userId, onComplete, onError }) => {
   };
 
   return (
-    <div className="fixed top-4 right-4 z-50 w-96 bg-white rounded-lg shadow-2xl border border-gray-200 overflow-hidden animate-slide-in hidden md:block">
+    <div className="fixed top-4 inset-x-4 md:inset-x-auto md:right-4 md:left-auto z-50 w-auto md:w-96 max-w-sm mx-auto md:mx-0 bg-white rounded-lg shadow-2xl border border-gray-200 overflow-hidden animate-slide-in">
       {/* Header */}
       <div className={`${getStatusColor()} text-white px-4 py-3 flex items-center justify-between`}>
         <div className="flex items-center space-x-2">

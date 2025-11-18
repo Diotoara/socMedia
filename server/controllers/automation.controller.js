@@ -63,6 +63,7 @@ class AutomationController {
       const User = require('../models/User');
       const user = await User.findById(userId);
       const selectedPostIds = user?.automationSettings?.selectedPosts || [];
+      const monitorAll = user?.automationSettings?.monitorAll || false;
 
       // Get configuration from storage
       const config = await this.storageService.getConfig() || {};
@@ -80,7 +81,8 @@ class AutomationController {
           replyTone,
           pollIntervalSeconds,
           maxCommentsPerCheck: 10,
-          selectedPostIds
+          selectedPostIds,
+          monitorAll
         }
       );
 

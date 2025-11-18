@@ -89,10 +89,17 @@ export const logsAPI = {
   getLogs: (params) => api.get('/api/logs', { params }),
   exportLogs: () => api.get('/api/logs/export'),
   clearLogs: () => api.delete('/api/logs'),
+  deleteLog: (logId) => api.delete(`/api/logs/${logId}`),
 };
 
 export const healthAPI = {
   check: () => api.get('/api/health'),
+};
+
+export const postsAPI = {
+  getPosts: (params) => api.get('/api/posts', { params }),
+  getSelectedPosts: () => api.get('/api/posts/selected'),
+  saveSelectedPosts: (postIds, monitorAll = false) => api.post('/api/posts/selected', { postIds, monitorAll }),
 };
 
 export const aiPostAPI = {

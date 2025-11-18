@@ -254,6 +254,10 @@ app.delete('/api/logs', authMiddleware, (req, res) => {
   logsController.clearLogs(req, res);
 });
 
+app.delete('/api/logs/:logId', authMiddleware, (req, res) => {
+  logsController.deleteLog(req, res);
+});
+
 // ============================================
 // Serve Frontend in Production
 // ============================================

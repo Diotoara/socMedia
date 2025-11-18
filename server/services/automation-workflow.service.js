@@ -27,6 +27,7 @@ class AutomationWorkflow {
     this.maxCommentsPerCheck = config.maxCommentsPerCheck || 10;
     this.replyTone = config.replyTone || 'friendly';
     this.selectedPostIds = config.selectedPostIds || [];
+    this.monitorAll = config.monitorAll || false;
 
     // Workflow state
     this.state = {
@@ -132,7 +133,7 @@ class AutomationWorkflow {
 
       // Get posts to monitor (either selected posts or recent posts)
       let posts;
-      if (this.selectedPostIds && this.selectedPostIds.length > 0) {
+      if (!this.monitorAll && this.selectedPostIds && this.selectedPostIds.length > 0) {
         console.log(`[AutomationWorkflow] Monitoring ${this.selectedPostIds.length} selected posts`);
         // For selected posts, we need to fetch them individually
         // For now, get all posts and filter
@@ -144,9 +145,10 @@ class AutomationWorkflow {
         console.log(`[AutomationWorkflow] Found ${posts.length} matching posts from ${allPosts.length} total posts`);
       } else {
         // Get recent posts from the authenticated user with error handling
-        console.log('[AutomationWorkflow] Fetching recent posts (no specific posts selected)...');
+        console.log('[AutomationWorkflow] Fetching recent posts (monitoring all posts)...');
+        const fetchLimit = this.monitorAll ? 25 : 5;
         posts = await this.errorHandler.executeWithRetry(
-          () => this.instagramService.getAccountPosts(5),
+          () => this.instagramService.getAccountPosts(fetchLimit),
           { operation: 'getAccountPosts', node: 'detectComments' }
         );
       }

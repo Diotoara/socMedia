@@ -362,7 +362,7 @@ export default function DualPublisher() {
 
         {/* Progress Display */}
         {progress && (
-          <div className="mb-6">
+          <div className="mb-6 bg-white md:bg-transparent rounded-xl shadow-lg md:shadow-none border border-gray-200 md:border-0 p-4 md:p-0">
             <div className="mb-4">
               <div className="flex justify-between mb-2">
                 <span className="text-sm font-medium text-gray-700">Overall Progress</span>

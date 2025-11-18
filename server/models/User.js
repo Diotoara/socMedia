@@ -97,6 +97,10 @@ const userSchema = new mongoose.Schema({
       min: 1,
       max: 50
     },
+    monitorAll: {
+      type: Boolean,
+      default: false
+    },
     selectedPosts: {
       type: [String],
       default: []

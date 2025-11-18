@@ -29,14 +29,24 @@ router.get('/', async (req, res) => {
       });
     }
 
-    // Decrypt the access token
+    // Decrypt and sanitize the access token
     const decryptedToken = encryptionService.decrypt(user.instagramCredentials.accessToken);
+    const cleanToken = decryptedToken?.replace(/\s+/g, '').trim();
+
+    if (!cleanToken) {
+      return res.status(200).json({
+        success: true,
+        posts: [],
+        message: 'Instagram token expired. Please reconnect your Instagram account in Configuration.',
+        tokenExpired: true
+      });
+    }
 
     // Initialize Instagram service
     const instagramService = new InstagramGraphService();
     
     try {
-      await instagramService.initialize(decryptedToken, user.instagramCredentials.accountId);
+      await instagramService.initialize(cleanToken, user.instagramCredentials.accountId);
     } catch (initError) {
       // Token is invalid or expired
       return res.status(200).json({
@@ -79,7 +89,7 @@ router.post('/selected', async (req, res) => {
       });
     }
 
-    const { postIds } = req.body;
+    const { postIds, monitorAll } = req.body;
 
     if (!Array.isArray(postIds)) {
       return res.status(400).json({
@@ -96,13 +106,15 @@ router.post('/selected', async (req, res) => {
       });
     }
 
-    user.automationSettings.selectedPosts = postIds;
+    user.automationSettings.monitorAll = Boolean(monitorAll);
+    user.automationSettings.selectedPosts = Boolean(monitorAll) ? [] : postIds;
     await user.save();
 
     res.json({
       success: true,
       message: 'Selected posts saved successfully',
-      selectedPosts: postIds
+      selectedPosts: user.automationSettings.selectedPosts,
+      monitorAll: user.automationSettings.monitorAll
     });
   } catch (error) {
     console.error('Error saving selected posts:', error);
@@ -137,7 +149,8 @@ router.get('/selected', async (req, res) => {
 
     res.json({
       success: true,
-      selectedPosts: user.automationSettings?.selectedPosts || []
+      selectedPosts: user.automationSettings?.selectedPosts || [],
+      monitorAll: user.automationSettings?.monitorAll || false
     });
   } catch (error) {
     console.error('Error getting selected posts:', error);
