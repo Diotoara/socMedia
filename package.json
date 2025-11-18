@@ -23,7 +23,9 @@
     "test:oauth-url": "node test-oauth-url.js",
     "test:token-refresh": "node test-token-refresh.js",
     "test:oauth-session": "node test-oauth-session.js",
-    "verify:v24-upgrade": "node verify-v24-upgrade.js"
+    "verify:v24-upgrade": "node verify-v24-upgrade.js",
+    "diagnose:oauth": "node server/scripts/diagnose-oauth-issues.js",
+    "test:oauth-debug": "OAUTH_DEBUG=true node server/scripts/test-oauth-debug.js"
   },
   "keywords": [
     "instagram",
@@ -41,6 +43,7 @@
     "@langchain/langgraph": "^1.0.1",
     "axios": "^1.13.2",
     "bcryptjs": "^3.0.3",
+    "chalk": "^4.1.2",
     "connect-mongo": "^5.1.0",
     "cookie-parser": "^1.4.7",
     "dotenv": "^17.2.3",
