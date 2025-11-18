@@ -65,10 +65,10 @@ class InstagramOAuthService {
    * Generate OAuth authorization URL
    */
   generateAuthUrl(clientId, redirectUri, state = null) {
-    const debugger = this.debugMode ? new OAuthDebugger('Instagram') : null;
+    const debug = this.debugMode ? new OAuthDebugger('Instagram') : null;
     
     try {
-      debugger?.logStep('Generate Auth URL', {
+      debug?.logStep('Generate Auth URL', {
         clientId: clientId?.substring(0, 10) + '...',
         redirectUri,
         requestedScopes: this.requiredScopes
@@ -87,7 +87,7 @@ class InstagramOAuthService {
 
       const authUrl = `${this.authUrl}?${params.toString()}`;
       
-      debugger?.logStep('Auth URL Generated', {
+      debug?.logStep('Auth URL Generated', {
         url: authUrl.substring(0, 100) + '...',
         state: stateParam
       });
@@ -97,7 +97,7 @@ class InstagramOAuthService {
         state: stateParam
       };
     } finally {
-      debugger?.generateReport();
+      debug?.generateReport();
     }
   }
 
@@ -105,10 +105,10 @@ class InstagramOAuthService {
    * Exchange authorization code for access token
    */
   async exchangeCodeForToken(clientId, clientSecret, code, redirectUri) {
-    const debugger = this.debugMode ? new OAuthDebugger('Instagram') : null;
+    const debug = this.debugMode ? new OAuthDebugger('Instagram') : null;
     
     try {
-      debugger?.logStep('Exchange Code for Token', {
+      debug?.logStep('Exchange Code for Token', {
         clientId: clientId?.substring(0, 10) + '...',
         clientSecret: clientSecret ? '***' + clientSecret.substring(clientSecret.length - 4) : 'missing',
         code: code?.substring(0, 20) + '...',
@@ -127,7 +127,7 @@ class InstagramOAuthService {
 
       const response = await axios.post(this.shortLivedTokenUrl, params);
 
-      debugger?.logStep('Token Exchange Response Received', {
+      debug?.logStep('Token Exchange Response Received', {
         status: response.status,
         hasAccessToken: !!response.data.access_token,
         hasUserId: !!response.data.user_id,
@@ -147,13 +147,13 @@ class InstagramOAuthService {
       }
 
       // Analyze token BEFORE sanitization
-      debugger?.analyzeToken(accessToken, 'Short-Lived Token (Raw)');
+      debug?.analyzeToken(accessToken, 'Short-Lived Token (Raw)');
 
       // Sanitize token - remove ALL whitespace characters
       accessToken = accessToken?.replace(/\s+/g, '').trim();
 
       // Analyze token AFTER sanitization
-      debugger?.analyzeToken(accessToken, 'Short-Lived Token (Sanitized)');
+      debug?.analyzeToken(accessToken, 'Short-Lived Token (Sanitized)');
 
       console.log('[InstagramOAuth] Token exchange successful');
       console.log('[InstagramOAuth] Token length:', accessToken?.length);
@@ -165,7 +165,7 @@ class InstagramOAuthService {
           ? grantedPermissions
           : [];
 
-      debugger?.logStep('Token Exchange Success', {
+      debug?.logStep('Token Exchange Success', {
         tokenLength: accessToken?.length,
         userId,
         grantedPermissions: permissionsArray
@@ -178,13 +178,13 @@ class InstagramOAuthService {
         permissions: permissionsArray
       };
     } catch (error) {
-      debugger?.logError('Token Exchange Failed', error, {
+      debug?.logError('Token Exchange Failed', error, {
         redirectUri,
         codeLength: code?.length
       });
 
       if (error.response?.data?.error?.code === 190) {
-        debugger?.analyzeError190(error, { redirectUri });
+        debug?.analyzeError190(error, { redirectUri });
       }
 
       console.error('[InstagramOAuth] Token exchange error:', error.response?.data || error.message);
@@ -193,7 +193,7 @@ class InstagramOAuthService {
         error: error.response?.data?.error?.message || error.response?.data?.error_message || error.message
       };
     } finally {
-      debugger?.generateReport();
+      debug?.generateReport();
     }
   }
 
@@ -202,12 +202,12 @@ class InstagramOAuthService {
    * Use Facebook's token exchange endpoint
    */
   async getLongLivedToken(clientId, clientSecret, shortLivedToken) {
-    const debugger = this.debugMode ? new OAuthDebugger('Instagram') : null;
+    const debug = this.debugMode ? new OAuthDebugger('Instagram') : null;
     
     try {
-      debugger?.analyzeToken(shortLivedToken, 'Short-Lived Token Input');
+      debug?.analyzeToken(shortLivedToken, 'Short-Lived Token Input');
       
-      debugger?.logStep('Exchange for Long-Lived Token', {
+      debug?.logStep('Exchange for Long-Lived Token', {
         clientSecret: clientSecret ? '***' + clientSecret.substring(clientSecret.length - 4) : 'missing',
         shortLivedTokenLength: shortLivedToken?.length,
         endpoint: this.longLivedTokenUrl
@@ -221,7 +221,7 @@ class InstagramOAuthService {
 
       const response = await axios.get(`${this.longLivedTokenUrl}?${params.toString()}`);
 
-      debugger?.logStep('Long-Lived Token Response', {
+      debug?.logStep('Long-Lived Token Response', {
         status: response.status,
         hasAccessToken: !!response.data.access_token,
         expiresIn: response.data.expires_in,
@@ -239,19 +239,19 @@ class InstagramOAuthService {
       }
 
       // Analyze token BEFORE sanitization
-      debugger?.analyzeToken(accessToken, 'Long-Lived Token (Raw)');
+      debug?.analyzeToken(accessToken, 'Long-Lived Token (Raw)');
 
       // Sanitize token - remove ALL whitespace characters
       accessToken = accessToken?.replace(/\s+/g, '').trim();
 
       // Analyze token AFTER sanitization
-      debugger?.analyzeToken(accessToken, 'Long-Lived Token (Sanitized)');
+      debug?.analyzeToken(accessToken, 'Long-Lived Token (Sanitized)');
 
       console.log('[InstagramOAuth] Long-lived token exchange successful');
       console.log('[InstagramOAuth] Long-lived token length:', accessToken?.length);
       console.log('[InstagramOAuth] Expires in:', expiresIn, 'seconds');
 
-      debugger?.logStep('Long-Lived Token Success', {
+      debug?.logStep('Long-Lived Token Success', {
         tokenLength: accessToken?.length,
         expiresIn,
         expiresInDays: Math.floor(expiresIn / 86400)
@@ -264,12 +264,12 @@ class InstagramOAuthService {
         expiresIn: expiresIn || 5184000
       };
     } catch (error) {
-      debugger?.logError('Long-Lived Token Exchange Failed', error, {
+      debug?.logError('Long-Lived Token Exchange Failed', error, {
         shortLivedTokenLength: shortLivedToken?.length
       });
 
       if (error.response?.data?.error?.code === 190) {
-        debugger?.analyzeError190(error, {});
+        debug?.analyzeError190(error, {});
       }
 
       console.error('[InstagramOAuth] Long-lived token error:', error.response?.data || error.message);
@@ -288,7 +288,7 @@ class InstagramOAuthService {
         error: error.response?.data?.error?.message || error.message
       };
     } finally {
-      debugger?.generateReport();
+      debug?.generateReport();
     }
   }
 
@@ -343,17 +343,17 @@ class InstagramOAuthService {
    * Uses consistent v24.0 API endpoints
    */
   async validateToken(accessToken, options = {}) {
-    const debugger = this.debugMode ? new OAuthDebugger('Instagram') : null;
+    const debug = this.debugMode ? new OAuthDebugger('Instagram') : null;
     
     try {
-      debugger?.analyzeToken(accessToken, 'Token to Validate (Raw)');
+      debug?.analyzeToken(accessToken, 'Token to Validate (Raw)');
       
       const cleanToken = accessToken?.replace(/\s+/g, '').trim();
       const appAccessToken = this._resolveAppAccessToken(options.appAccessToken);
 
-      debugger?.analyzeToken(cleanToken, 'Token to Validate (Sanitized)');
+      debug?.analyzeToken(cleanToken, 'Token to Validate (Sanitized)');
       
-      debugger?.logStep('Validate Token', {
+      debug?.logStep('Validate Token', {
         tokenLength: cleanToken?.length,
         hasAppAccessToken: !!appAccessToken,
         endpoint: this.graphInstagramApiUrl
@@ -364,7 +364,7 @@ class InstagramOAuthService {
       console.log('[InstagramOAuth] Token preview:', cleanToken?.substring(0, 20) + '...');
 
       if (!cleanToken || cleanToken.length < 50) {
-        debugger?.logError('Token Validation', 'Token too short or empty', {
+        debug?.logError('Token Validation', 'Token too short or empty', {
           tokenLength: cleanToken?.length
         });
         return {
@@ -374,7 +374,7 @@ class InstagramOAuthService {
       }
 
       // Step 1: Fetch Instagram account basic info using graph.instagram.com
-      debugger?.logStep('Fetch Instagram Profile', {
+      debug?.logStep('Fetch Instagram Profile', {
         endpoint: `${this.graphInstagramApiUrl}/me`,
         fields: 'id,username,account_type,media_count'
       });
@@ -391,7 +391,7 @@ class InstagramOAuthService {
       const username = profileResponse.data.username;
       const mediaCount = profileResponse.data.media_count;
 
-      debugger?.logStep('Profile Fetched', {
+      debug?.logStep('Profile Fetched', {
         accountId,
         username,
         accountType: profileResponse.data.account_type,
@@ -405,7 +405,7 @@ class InstagramOAuthService {
       });
 
       if (!accountId) {
-        debugger?.logError('Profile Fetch', 'No account ID returned');
+        debug?.logError('Profile Fetch', 'No account ID returned');
         return {
           success: false,
           error: 'Unable to retrieve Instagram account information. Ensure the account is Business or Creator.'
@@ -413,14 +413,14 @@ class InstagramOAuthService {
       }
 
       // Step 2: Debug token to validate scopes and expiration
-      debugger?.logStep('Debug Token', {
+      debug?.logStep('Debug Token', {
         endpoint: this.debugTokenUrl,
         hasAppAccessToken: !!appAccessToken
       });
 
       console.log('[InstagramOAuth] Step 2: Debugging token via debug_token...');
       if (!appAccessToken) {
-        debugger?.logWarning('Debug Token', 'App access token not configured, using user token');
+        debug?.logWarning('Debug Token', 'App access token not configured, using user token');
         console.warn('[InstagramOAuth] App access token not configured. Falling back to user token for debug_token request.');
       }
 
@@ -442,7 +442,7 @@ class InstagramOAuthService {
         expiresAt = debugData.expires_at ?? null;
         dataAccessExpiresAt = debugData.data_access_expires_at ?? null;
 
-        debugger?.logStep('Debug Token Success', {
+        debug?.logStep('Debug Token Success', {
           isValid: debugData.is_valid,
           appId: debugData.app_id,
           userId: debugData.user_id,
@@ -455,7 +455,7 @@ class InstagramOAuthService {
         const metaMessage = metaError?.message || debugError.message;
         const metaCode = metaError?.code;
 
-        debugger?.logWarning('Debug Token Failed', metaMessage, {
+        debug?.logWarning('Debug Token Failed', metaMessage, {
           code: metaCode,
           message: metaMessage
         });
@@ -477,7 +477,7 @@ class InstagramOAuthService {
       const hasRequiredScopes = this.requiredScopes.every(scope => scopes.includes(scope));
 
       if (!hasRequiredScopes) {
-        debugger?.logWarning('Scope Validation', 'Missing required scopes', {
+        debug?.logWarning('Scope Validation', 'Missing required scopes', {
           required: this.requiredScopes,
           actual: scopes,
           missing: this.requiredScopes.filter(s => !scopes.includes(s))
@@ -489,7 +489,7 @@ class InstagramOAuthService {
         });
       }
 
-      debugger?.logStep('Validation Success', {
+      debug?.logStep('Validation Success', {
         accountId,
         username,
         accountType: profileResponse.data.account_type,
@@ -507,12 +507,12 @@ class InstagramOAuthService {
         dataAccessExpiresAt
       };
     } catch (error) {
-      debugger?.logError('Token Validation Failed', error, {
+      debug?.logError('Token Validation Failed', error, {
         tokenLength: accessToken?.length
       });
 
       if (error.response?.data?.error?.code === 190) {
-        debugger?.analyzeError190(error, {});
+        debug?.analyzeError190(error, {});
       }
 
       console.error('[InstagramOAuth] Token validation error:', {
@@ -552,7 +552,7 @@ class InstagramOAuthService {
         errorCode: error.response?.data?.error?.code
       };
     } finally {
-      debugger?.generateReport();
+      debug?.generateReport();
     }
   }
 
