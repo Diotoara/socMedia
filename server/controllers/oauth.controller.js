@@ -7,6 +7,18 @@ const encryptionService = new EncryptionService();
 const instagramOAuth = new InstagramOAuthService();
 const youtubeOAuth = new YouTubeOAuthService();
 
+const getRedirectBaseUrl = () => {
+  const raw = process.env.OAUTH_REDIRECT_BASE_URL || process.env.APP_URL || 'http://localhost:3000';
+  const trimmed = raw.trim();
+  const normalized = (trimmed || 'http://localhost:3000').replace(/\/+$/, '');
+  return normalized;
+};
+
+const buildRedirectUri = (path) => {
+  const normalizedPath = path.startsWith('/') ? path : `/${path}`;
+  return `${getRedirectBaseUrl()}${normalizedPath}`;
+};
+
 class OAuthController {
   /**
    * GET /api/oauth/instagram/auth-url
@@ -33,7 +45,7 @@ class OAuthController {
         });
       }
 
-      const redirectUri = `${process.env.OAUTH_REDIRECT_BASE_URL || process.env.APP_URL || 'http://localhost:3000'}/api/oauth/instagram/callback`;
+      const redirectUri = buildRedirectUri('/api/oauth/instagram/callback');
       const { url, state } = instagramOAuth.generateAuthUrl(clientId, redirectUri);
 
       // Store state and userId for callback validation
@@ -128,7 +140,7 @@ class OAuthController {
         return res.redirect(`${frontendUrl}/dashboard?instagram=error&message=${encodeURIComponent('Instagram OAuth not configured by administrator')}`);
       }
 
-      const redirectUri = `${process.env.OAUTH_REDIRECT_BASE_URL || process.env.APP_URL || 'http://localhost:3000'}/api/oauth/instagram/callback`;
+      const redirectUri = buildRedirectUri('/api/oauth/instagram/callback');
 
       // Mark code as used BEFORE attempting exchange to prevent race conditions
       req.session.instagramOAuthUsedCode = code;
@@ -313,7 +325,7 @@ class OAuthController {
         });
       }
 
-      const redirectUri = `${process.env.OAUTH_REDIRECT_BASE_URL || process.env.APP_URL || 'http://localhost:3000'}/api/oauth/youtube/callback`;
+      const redirectUri = buildRedirectUri('/api/oauth/youtube/callback');
       const { url, state } = youtubeOAuth.generateAuthUrl(clientId, clientSecret, redirectUri);
 
       // Store state and userId for callback validation
@@ -409,7 +421,7 @@ class OAuthController {
         return res.redirect(`${frontendUrl}/dashboard?youtube=error&message=${encodeURIComponent('YouTube OAuth not configured by administrator')}`);
       }
 
-      const redirectUri = `${process.env.OAUTH_REDIRECT_BASE_URL || process.env.APP_URL || 'http://localhost:3000'}/api/oauth/youtube/callback`;
+      const redirectUri = buildRedirectUri('/api/oauth/youtube/callback');
 
       // Mark code as used BEFORE attempting exchange to prevent race conditions
       req.session.youtubeOAuthUsedCode = code;
