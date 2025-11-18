@@ -27,6 +27,7 @@ const instagramStatusRoutes = require('./routes/instagram-status.routes');
 const statsRoutes = require('./routes/stats.routes');
 const apiConfigRoutes = require('./routes/api-config.routes');
 const debugRoutes = require('./routes/debug.routes');
+const metaWebhookRouter = require('./webhooks/instagram-webhook');
 
 // Import middleware
 const { authMiddleware } = require('./middleware/auth.middleware');
@@ -69,7 +70,11 @@ const logsController = new LogsController();
 const dualPublishController = new DualPublishController(io);
 
 // Middleware
-app.use(express.json());
+app.use(express.json({
+  verify: (req, res, buf) => {
+    req.rawBody = buf;
+  }
+}));
 app.use(cookieParser());
 
 // Session middleware (for OAuth state management)
@@ -185,6 +190,11 @@ app.use('/api/config', authMiddleware, apiConfigRoutes);
 // Debug Routes (Protected)
 // ============================================
 app.use('/api/debug', authMiddleware, debugRoutes);
+
+// ============================================
+// Meta Webhook Endpoints (Unprotected - Meta signature validated)
+// ============================================
+app.use('/webhooks/meta', metaWebhookRouter);
 
 // ============================================
 // Configuration Routes (Protected)

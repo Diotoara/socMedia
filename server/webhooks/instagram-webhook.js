@@ -2,229 +2,271 @@ const express = require('express');
 const crypto = require('crypto');
 
 /**
- * Instagram Webhook Handler
- * Receives real-time updates for comments, messages, and mentions
- * 
- * Setup:
- * 1. Configure webhook in Meta App Dashboard
- * 2. Subscribe to: comments, messages, messaging_postbacks
- * 3. Set webhook URL: https://yourdomain.com/webhooks/instagram
- * 4. Set verify token in .env: INSTAGRAM_WEBHOOK_VERIFY_TOKEN
+ * Instagram Webhook Handler (Business Login compliant)
+ *
+ * Mount this router at `/webhooks/meta` to expose:
+ *   GET  /webhooks/meta/instagram   -> verification handshake
+ *   POST /webhooks/meta/instagram   -> event notifications (comments, messages, story_insights, etc.)
  */
 
 const router = express.Router();
 
-const VERIFY_TOKEN = process.env.INSTAGRAM_WEBHOOK_VERIFY_TOKEN || 'your_verify_token_here';
-const APP_SECRET = process.env.FACEBOOK_APP_SECRET;
+const VERIFY_TOKEN = process.env.INSTAGRAM_WEBHOOK_VERIFY_TOKEN;
+const APP_SECRET = process.env.INSTAGRAM_CLIENT_SECRET || process.env.INSTAGRAM_APP_SECRET;
+
+if (!VERIFY_TOKEN) {
+  console.warn('[Webhook] INSTAGRAM_WEBHOOK_VERIFY_TOKEN not set. Verification will fail until configured.');
+}
+
+if (!APP_SECRET) {
+  console.warn('[Webhook] INSTAGRAM_CLIENT_SECRET (app secret) not set. Signature validation disabled.');
+}
 
 /**
- * Webhook verification (GET request from Meta)
- * Meta will call this to verify your webhook endpoint
+ * GET /webhooks/meta/instagram
+ * Responds to Meta's verification challenge (`hub.mode`, `hub.verify_token`, `hub.challenge`).
  */
 router.get('/instagram', (req, res) => {
   const mode = req.query['hub.mode'];
   const token = req.query['hub.verify_token'];
   const challenge = req.query['hub.challenge'];
-  
-  if (mode === 'subscribe' && token === VERIFY_TOKEN) {
-    console.log('[Webhook] Verification successful');
-    res.status(200).send(challenge);
-  } else {
-    console.error('[Webhook] Verification failed');
-    res.sendStatus(403);
+
+  if (mode === 'subscribe' && token && challenge) {
+    if (token === VERIFY_TOKEN) {
+      console.log('[Webhook] Verification successful');
+      return res.status(200).send(challenge);
+    }
+
+    console.error('[Webhook] Verification failed: invalid verify token');
+    return res.sendStatus(403);
   }
+
+  console.error('[Webhook] Verification failed: missing or invalid query params');
+  return res.sendStatus(400);
 });
 
 /**
- * Verify webhook signature
- * Ensures the request actually came from Meta
+ * Middleware-aware signature verification using raw request body.
  */
 function verifySignature(req) {
-  const signature = req.headers['x-hub-signature-256'];
-  
-  if (!signature) {
-    console.error('[Webhook] No signature found');
+  if (!APP_SECRET) {
+    return true; // Skip verification when secret is unavailable (development only)
+  }
+
+  const signatureHeader = req.headers['x-hub-signature-256'];
+  if (!signatureHeader) {
+    console.error('[Webhook] Invalid request: missing X-Hub-Signature-256 header');
     return false;
   }
-  
-  const elements = signature.split('=');
-  const signatureHash = elements[1];
-  
+
+  const [algorithm, signatureHash] = signatureHeader.split('=');
+  if (algorithm !== 'sha256' || !signatureHash) {
+    console.error('[Webhook] Invalid signature format');
+    return false;
+  }
+
+  const rawBody = req.rawBody;
+  if (!rawBody) {
+    console.error('[Webhook] Missing raw body for signature verification');
+    return false;
+  }
+
   const expectedHash = crypto
     .createHmac('sha256', APP_SECRET)
-    .update(JSON.stringify(req.body))
+    .update(rawBody)
     .digest('hex');
-  
-  return signatureHash === expectedHash;
+
+  const isValid = crypto.timingSafeEqual(Buffer.from(signatureHash, 'hex'), Buffer.from(expectedHash, 'hex'));
+  if (!isValid) {
+    console.error('[Webhook] Signature mismatch');
+  }
+
+  return isValid;
 }
 
 /**
- * Webhook event handler (POST request from Meta)
- * Receives real-time updates
+ * POST /webhooks/meta/instagram
+ * Handles webhook notifications from Meta (comments, messages, mentions, story_insights, etc.).
  */
-router.post('/instagram', express.json(), (req, res) => {
-  // Verify signature
-  if (APP_SECRET && !verifySignature(req)) {
-    console.error('[Webhook] Invalid signature');
-    return res.sendStatus(403);
-  }
-  
-  const body = req.body;
-  
-  // Check if this is a page subscription
-  if (body.object === 'instagram') {
-    // Process each entry
-    body.entry.forEach(entry => {
-      // Get the webhook event
-      const webhookEvent = entry.changes?.[0] || entry.messaging?.[0];
-      
-      if (!webhookEvent) {
-        console.log('[Webhook] No event data found');
-        return;
-      }
-      
-      // Handle different event types
-      handleWebhookEvent(webhookEvent, entry);
+router.post(
+  '/instagram',
+  express.json({
+    verify: (req, res, buf) => {
+      req.rawBody = buf; // Preserve raw payload for signature verification
+    }
+  }),
+  (req, res) => {
+    if (!verifySignature(req)) {
+      return res.sendStatus(403);
+    }
+
+    const body = req.body;
+
+    if (body.object !== 'instagram') {
+      return res.sendStatus(404);
+    }
+
+    const entries = Array.isArray(body.entry) ? body.entry : [];
+    entries.forEach(entry => {
+      const changes = Array.isArray(entry.changes) ? entry.changes : [];
+
+      changes.forEach(change => {
+        if (!change || !change.field) {
+          return;
+        }
+
+        handleWebhookEvent(change, entry);
+      });
+
+      const messagingEvents = Array.isArray(entry.messaging) ? entry.messaging : [];
+      messagingEvents.forEach(event => {
+        if (!event) {
+          return;
+        }
+
+        handleWebhookEvent({ field: 'messages', value: event }, entry);
+      });
     });
-    
-    // Return 200 OK to acknowledge receipt
-    res.status(200).send('EVENT_RECEIVED');
-  } else {
-    res.sendStatus(404);
+
+    return res.status(200).send('EVENT_RECEIVED');
   }
-});
+);
 
 /**
- * Process webhook events
+ * Dispatch webhook events based on field.
  */
 function handleWebhookEvent(event, entry) {
   const field = event.field;
   const value = event.value;
-  
+
   console.log(`[Webhook] Received event: ${field}`);
-  
+
   switch (field) {
     case 'comments':
       handleCommentEvent(value);
       break;
-      
-    case 'messages':
-      handleMessageEvent(event);
-      break;
-      
-    case 'messaging_postbacks':
-      handlePostbackEvent(event);
-      break;
-      
+
     case 'mentions':
       handleMentionEvent(value);
       break;
-      
+
+    case 'messages':
+      handleMessageEvent(value);
+      break;
+
+    case 'messaging_postbacks':
+      handlePostbackEvent(value);
+      break;
+
+    case 'story_insights':
+      handleStoryInsightsEvent(value);
+      break;
+
     default:
       console.log(`[Webhook] Unhandled event type: ${field}`);
   }
 }
 
-/**
- * Handle new comment events
- */
-function handleCommentEvent(value) {
+function handleCommentEvent(value = {}) {
   const commentId = value.id;
-  const mediaId = value.media?.id;
+  const mediaId = value.media_id || value.media?.id;
   const text = value.text;
   const from = value.from;
-  
-  console.log('[Webhook] New comment received:');
-  console.log(`  Comment ID: ${commentId}`);
-  console.log(`  Media ID: ${mediaId}`);
-  console.log(`  From: ${from?.username || from?.id}`);
-  console.log(`  Text: ${text}`);
-  
-  // TODO: Implement your comment handling logic here
-  // Example: Check if comment matches trigger keywords
-  // Example: Auto-reply with DM
-  // Example: Store in database for processing
-  
-  // Emit event for your application to handle
+
+  console.log('[Webhook] New comment received:', {
+    commentId,
+    mediaId,
+    from: from?.username || from?.id,
+    text
+  });
+
   if (global.eventEmitter) {
     global.eventEmitter.emit('instagram:comment', {
       commentId,
       mediaId,
       text,
       from,
-      timestamp: new Date()
+      timestamp: new Date(),
+      raw: value
     });
   }
 }
 
-/**
- * Handle direct message events
- */
-function handleMessageEvent(event) {
+function handleMessageEvent(event = {}) {
   const senderId = event.sender?.id;
   const recipientId = event.recipient?.id;
   const message = event.message;
-  
-  console.log('[Webhook] New message received:');
-  console.log(`  From: ${senderId}`);
-  console.log(`  To: ${recipientId}`);
-  console.log(`  Message: ${message?.text || '[media]'}`);
-  
-  // TODO: Implement your message handling logic here
-  // Example: Auto-respond to FAQs
-  // Example: Route to customer support
-  // Example: Trigger chatbot flow
-  
+
+  console.log('[Webhook] New message received:', {
+    senderId,
+    recipientId,
+    message: message?.text || '[media]'
+  });
+
   if (global.eventEmitter) {
     global.eventEmitter.emit('instagram:message', {
       senderId,
       recipientId,
       message,
-      timestamp: new Date()
+      timestamp: new Date(),
+      raw: event
     });
   }
 }
 
-/**
- * Handle postback events (button clicks, quick replies)
- */
-function handlePostbackEvent(event) {
+function handlePostbackEvent(event = {}) {
   const senderId = event.sender?.id;
-  const postback = event.postback;
-  
-  console.log('[Webhook] Postback received:');
-  console.log(`  From: ${senderId}`);
-  console.log(`  Payload: ${postback?.payload}`);
-  
-  // TODO: Handle button clicks and quick reply responses
-  
+  const payload = event.postback?.payload;
+
+  console.log('[Webhook] Postback received:', {
+    senderId,
+    payload
+  });
+
   if (global.eventEmitter) {
     global.eventEmitter.emit('instagram:postback', {
       senderId,
-      payload: postback?.payload,
-      timestamp: new Date()
+      payload,
+      timestamp: new Date(),
+      raw: event
     });
   }
 }
 
-/**
- * Handle mention events (when someone @mentions your account)
- */
-function handleMentionEvent(value) {
+function handleMentionEvent(value = {}) {
   const mediaId = value.media_id;
   const commentId = value.comment_id;
-  
-  console.log('[Webhook] Mention received:');
-  console.log(`  Media ID: ${mediaId}`);
-  console.log(`  Comment ID: ${commentId}`);
-  
-  // TODO: Handle mentions in Stories or posts
-  
+
+  console.log('[Webhook] Mention received:', {
+    mediaId,
+    commentId
+  });
+
   if (global.eventEmitter) {
     global.eventEmitter.emit('instagram:mention', {
       mediaId,
       commentId,
-      timestamp: new Date()
+      timestamp: new Date(),
+      raw: value
+    });
+  }
+}
+
+function handleStoryInsightsEvent(value = {}) {
+  const storyId = value.story_id;
+  const metrics = value.metrics;
+
+  console.log('[Webhook] Story insights received:', {
+    storyId,
+    metrics
+  });
+
+  if (global.eventEmitter) {
+    global.eventEmitter.emit('instagram:story_insight', {
+      storyId,
+      metrics,
+      timestamp: new Date(),
+      raw: value
     });
   }
 }
