@@ -14,7 +14,7 @@ const PostSelector = ({ onSelectionChange }) => {
     onSelectionChange?.({ monitorAll: nextMonitorAll, selectedPostIds: postIds });
   }, [onSelectionChange]);
 
-  const loadPosts = useCallback(async () => {
+  const loadPosts = async () => {
     setLoading(true);
     try {
       const response = await postsAPI.getPosts({ limit: 100 });
@@ -36,9 +36,9 @@ const PostSelector = ({ onSelectionChange }) => {
     } finally {
       setLoading(false);
     }
-  }, [toast]);
+  };
 
-  const loadSelectedPosts = useCallback(async () => {
+  const loadSelectedPosts = async () => {
     try {
       const response = await postsAPI.getSelectedPosts();
       const data = response.data;
@@ -53,12 +53,13 @@ const PostSelector = ({ onSelectionChange }) => {
     } catch (err) {
       console.error('Failed to load selected posts:', err);
     }
-  }, [notifyParent]);
+  };
 
   useEffect(() => {
     loadPosts();
     loadSelectedPosts();
-  }, [loadPosts, loadSelectedPosts]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []); // Only run once on mount
 
   const saveSelectedPosts = useCallback(async (postIds, shouldMonitorAll) => {
     setSaving(true);
