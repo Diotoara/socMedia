@@ -157,6 +157,10 @@ class AutomationWorkflow {
       
       const newComments = [];
 
+      // Get bot's own username to filter out self-replies
+      const botUsername = await this.instagramService.getAccountInfo().then(info => info.username).catch(() => null);
+      console.log(`[AutomationWorkflow] Bot username: @${botUsername}`);
+
       // Fetch comments for each post
       for (const post of posts) {
         console.log(`[AutomationWorkflow] Checking post ${post.id} (${post.type}) - ${post.commentCount} comments`);
@@ -168,32 +172,42 @@ class AutomationWorkflow {
           
           console.log(`[AutomationWorkflow] Retrieved ${comments.length} comments from post ${post.id}`);
           
-          // Filter out already processed comments
+          // Filter out already processed comments and bot's own comments
           for (const comment of comments) {
+            // Skip bot's own comments to prevent infinite loop
+            if (botUsername && comment.username === botUsername) {
+              console.log(`[AutomationWorkflow] Skipping bot's own comment ${comment.id}`);
+              continue;
+            }
+
             const isProcessed = await this.storageService.isCommentProcessed(comment.id);
             
             console.log(`[AutomationWorkflow] Comment ${comment.id} from @${comment.username}: "${comment.text.substring(0, 50)}..." - Processed: ${isProcessed}`);
             
-            // Graph API doesn't return replies in the main comments list, so all are top-level
-            if (!isProcessed) {
-              newComments.push({
-                ...comment,
-                postCaption: post.caption,
-                postType: post.type
-              });
-
-              // Log comment detection
-              await this.storageService.appendLog({
-                type: 'comment_detected',
-                message: `New comment detected from @${comment.username}`,
-                details: {
-                  commentId: comment.id,
-                  postId: comment.postId,
-                  username: comment.username,
-                  text: comment.text
-                }
-              });
+            // Skip if already processed
+            if (isProcessed) {
+              console.log(`[AutomationWorkflow] Skipping already processed comment ${comment.id}`);
+              continue;
             }
+            
+            // Graph API doesn't return replies in the main comments list, so all are top-level
+            newComments.push({
+              ...comment,
+              postCaption: post.caption,
+              postType: post.type
+            });
+
+            // Log comment detection
+            await this.storageService.appendLog({
+              type: 'comment_detected',
+              message: `New comment detected from @${comment.username}`,
+              details: {
+                commentId: comment.id,
+                postId: comment.postId,
+                username: comment.username,
+                text: comment.text
+              }
+            });
           }
         } catch (error) {
           // Handle error for individual post
@@ -377,8 +391,15 @@ class AutomationWorkflow {
       const replyTypeDisplay = replyType === 'private' ? 'private message' : 'public reply';
       console.log(`[AutomationWorkflow] Successfully posted ${replyTypeDisplay}`);
 
-      // Mark comment as processed
-      await this.storageService.markCommentProcessed(comment.id);
+      // Mark comment as processed with full data
+      await this.storageService.markCommentProcessed(comment.id, {
+        postId: comment.postId,
+        username: comment.username,
+        text: comment.text,
+        reply: reply,
+        replyId: replyResult?.id || null,
+        status: 'reply_posted'
+      });
       state.processedComments.add(comment.id);
 
       // Remove from pending comments

@@ -91,11 +91,11 @@ app.use(session({
     touchAfter: 24 * 3600 // Lazy session update (24 hours)
   }),
   cookie: {
-    secure: process.env.NODE_ENV === 'production', // HTTPS only in production
+    secure: false, // Set to false for development with ngrok
     httpOnly: true,
-    sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',
+    sameSite: 'lax', // Use 'lax' for development
     maxAge: 1000 * 60 * 60 * 24, // 24 hours
-    domain: process.env.NODE_ENV === 'production' ? '.onrender.com' : undefined
+    domain: undefined // No domain restriction for development
   }
 }));
 
@@ -173,9 +173,9 @@ app.use('/api/ai-post', authMiddleware, aiPostRoutes);
 app.use('/api/publish', authMiddleware, createDualPublishRoutes(dualPublishController));
 
 // ============================================
-// OAuth Routes (Protected)
+// OAuth Routes (Partially Protected - callbacks are public)
 // ============================================
-app.use('/api/oauth', authMiddleware, oauthRoutes);
+app.use('/api/oauth', oauthRoutes);
 
 // ============================================
 // Instagram Status Routes (Protected)

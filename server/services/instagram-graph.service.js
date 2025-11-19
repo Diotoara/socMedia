@@ -7,7 +7,8 @@ const axios = require('axios');
  */
 class InstagramGraphService {
   constructor() {
-    this.baseUrl = 'https://graph.facebook.com/v24.0'; // Latest stable version
+    this.baseUrl = 'https://graph.instagram.com'; // Instagram Graph API for User Access Tokens
+    this.facebookGraphUrl = 'https://graph.facebook.com/v24.0'; // Facebook Graph API (fallback)
     this.accessToken = null;
     this.instagramAccountId = null;
     this.isAuthenticated = false;
@@ -36,17 +37,21 @@ class InstagramGraphService {
 
   /**
    * Verify access token is valid
+   * Uses graph.instagram.com for Instagram User Access Tokens
    */
   async verifyToken(accountId = 'me') {
     try {
+      // Use graph.instagram.com for Instagram User Access Tokens
       const response = await axios.get(`${this.baseUrl}/${accountId}`, {
         params: {
           access_token: this.accessToken,
-          fields: 'id,username'
+          fields: 'id,username,account_type'
         }
       });
+      console.log('[InstagramGraphService] Token verified:', response.data);
       return response.data;
     } catch (error) {
+      console.error('[InstagramGraphService] Token verification failed:', error.response?.data || error.message);
       throw new Error('Invalid or expired access token');
     }
   }
@@ -81,6 +86,7 @@ class InstagramGraphService {
     this._ensureAuthenticated();
     
     try {
+      console.log('[InstagramGraphService] Fetching posts for account:', this.instagramAccountId);
       const response = await axios.get(
         `${this.baseUrl}/${this.instagramAccountId}/media`,
         {
@@ -91,6 +97,8 @@ class InstagramGraphService {
           }
         }
       );
+      
+      console.log('[InstagramGraphService] Posts fetched successfully:', response.data.data?.length || 0);
       
       return response.data.data.map(post => ({
         id: post.id,
@@ -104,6 +112,7 @@ class InstagramGraphService {
         likeCount: post.like_count || 0
       }));
     } catch (error) {
+      console.error('[InstagramGraphService] Failed to fetch posts:', error.response?.data || error.message);
       throw new Error(`Failed to fetch posts: ${error.response?.data?.error?.message || error.message}`);
     }
   }

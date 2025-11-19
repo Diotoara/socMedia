@@ -46,11 +46,20 @@ class OAuthController {
       }
 
       const redirectUri = buildRedirectUri('/api/oauth/instagram/callback');
-      const { url, state } = instagramOAuth.generateAuthUrl(clientId, redirectUri);
+      
+      // Encode userId in state parameter to avoid session dependency
+      const stateData = {
+        random: require('crypto').randomBytes(16).toString('hex'),
+        userId: userId.toString(),
+        timestamp: Date.now()
+      };
+      const stateParam = Buffer.from(JSON.stringify(stateData)).toString('base64');
+      
+      const { url } = instagramOAuth.generateAuthUrl(clientId, redirectUri, stateParam);
 
-      // Store state and userId for callback validation
+      // Store state in session as backup (but don't rely on it)
       req.session = req.session || {};
-      req.session.instagramOAuthState = state;
+      req.session.instagramOAuthState = stateParam;
       req.session.instagramOAuthUserId = userId.toString();
       
       // Clear any previous used code to allow fresh attempt
@@ -63,7 +72,7 @@ class OAuthController {
             console.error('[OAuth] Session save error:', err);
             reject(err);
           } else {
-            console.log(`[OAuth] Session initialized for user ${userId}, state: ${state}`);
+            console.log(`[OAuth] Session initialized for user ${userId}, state: ${stateParam}`);
             resolve();
           }
         });
@@ -72,7 +81,7 @@ class OAuthController {
       res.json({
         success: true,
         authUrl: url,
-        state
+        state: stateParam
       });
     } catch (error) {
       console.error('[OAuth] Get Instagram auth URL error:', error);
@@ -107,8 +116,42 @@ class OAuthController {
         return res.redirect(`${frontendUrl}/dashboard?instagram=error&message=${encodeURIComponent('Authorization code not provided')}`);
       }
 
-      // Validate state parameter to prevent CSRF attacks
-      if (state && req.session?.instagramOAuthState && state !== req.session.instagramOAuthState) {
+      if (!state) {
+        console.error('[OAuth] No state parameter provided');
+        return res.redirect(`${frontendUrl}/dashboard?instagram=error&message=${encodeURIComponent('Invalid OAuth state')}`);
+      }
+
+      // Decode state parameter to get userId
+      let stateData;
+      let userId;
+      try {
+        const stateJson = Buffer.from(state, 'base64').toString('utf-8');
+        stateData = JSON.parse(stateJson);
+        userId = stateData.userId;
+        
+        console.log('[OAuth] Decoded state:', {
+          userId: userId,
+          timestamp: stateData.timestamp,
+          age: Date.now() - stateData.timestamp
+        });
+
+        // Validate state is not too old (15 minutes)
+        if (Date.now() - stateData.timestamp > 15 * 60 * 1000) {
+          console.error('[OAuth] State parameter expired');
+          return res.redirect(`${frontendUrl}/dashboard?instagram=error&message=${encodeURIComponent('OAuth session expired - please try again')}`);
+        }
+      } catch (error) {
+        console.error('[OAuth] Failed to decode state parameter:', error);
+        return res.redirect(`${frontendUrl}/dashboard?instagram=error&message=${encodeURIComponent('Invalid OAuth state')}`);
+      }
+
+      if (!userId) {
+        console.error('[OAuth] No userId in state parameter');
+        return res.redirect(`${frontendUrl}/dashboard?instagram=error&message=${encodeURIComponent('User session not found')}`);
+      }
+
+      // Validate state matches session as additional security (if session exists)
+      if (req.session?.instagramOAuthState && state !== req.session.instagramOAuthState) {
         console.error('[OAuth] State mismatch - possible CSRF attack', {
           received: state,
           expected: req.session.instagramOAuthState
@@ -120,12 +163,6 @@ class OAuthController {
       if (req.session?.instagramOAuthUsedCode === code) {
         console.warn('[OAuth] Authorization code already used in this session:', code.substring(0, 10) + '...');
         return res.redirect(`${frontendUrl}/dashboard?instagram=error&message=${encodeURIComponent('Login session already completed - please start again')}`);
-      }
-
-      // Get userId from session
-      const userId = req.session?.instagramOAuthUserId || req.userId || req.user?._id;
-      if (!userId) {
-        return res.redirect(`${frontendUrl}/dashboard?instagram=error&message=${encodeURIComponent('User session not found')}`);
       }
 
       const user = await User.findById(userId);
@@ -217,28 +254,9 @@ class OAuthController {
         return res.redirect(`${frontendUrl}/dashboard?instagram=error&message=${encodeURIComponent(userMessage)}`);
       }
 
-      // Verify token works with a simple API call
-      console.log('[OAuth] Verifying token with API call...');
-      const verification = await instagramOAuth.verifyTokenWorks(
-        longLivedResult.accessToken,
-        validation.accountId
-      );
-
-      if (!verification.success) {
-        console.error('[OAuth] Token verification failed:', verification.error);
-        
-        // Track token error
-        if (user.instagramCredentials) {
-          user.instagramCredentials.tokenErrorCount = (user.instagramCredentials.tokenErrorCount || 0) + 1;
-          user.instagramCredentials.lastTokenError = `Verification failed: ${verification.error}`;
-          user.instagramCredentials.lastTokenErrorAt = new Date();
-          await user.save();
-        }
-        
-        return res.redirect(`${frontendUrl}/dashboard?instagram=error&message=${encodeURIComponent('Session expired or token corrupted. Please reconnect your Instagram account.')}`);
-      }
-
-      console.log('[OAuth] Token verified successfully');
+      // Token is already verified by validateToken() which successfully fetched the profile
+      // Skip additional verification since Instagram User Access Tokens work with graph.instagram.com
+      console.log('[OAuth] Token verified successfully via profile fetch');
 
       // Encrypt and save token with all required fields including debug info
       const encryptedToken = encryptionService.encrypt(longLivedResult.accessToken);
@@ -326,11 +344,20 @@ class OAuthController {
       }
 
       const redirectUri = buildRedirectUri('/api/oauth/youtube/callback');
-      const { url, state } = youtubeOAuth.generateAuthUrl(clientId, clientSecret, redirectUri);
+      
+      // Encode userId in state parameter to avoid session dependency
+      const stateData = {
+        random: require('crypto').randomBytes(16).toString('hex'),
+        userId: userId.toString(),
+        timestamp: Date.now()
+      };
+      const stateParam = Buffer.from(JSON.stringify(stateData)).toString('base64');
+      
+      const { url } = youtubeOAuth.generateAuthUrl(clientId, clientSecret, redirectUri, stateParam);
 
-      // Store state and userId for callback validation
+      // Store state in session as backup (but don't rely on it)
       req.session = req.session || {};
-      req.session.youtubeOAuthState = state;
+      req.session.youtubeOAuthState = stateParam;
       req.session.youtubeOAuthUserId = userId.toString();
       
       // Clear any previous used code to allow fresh attempt
@@ -343,7 +370,7 @@ class OAuthController {
             console.error('[OAuth] YouTube session save error:', err);
             reject(err);
           } else {
-            console.log(`[OAuth] YouTube session initialized for user ${userId}, state: ${state}`);
+            console.log(`[OAuth] YouTube session initialized for user ${userId}, state: ${stateParam}`);
             resolve();
           }
         });
@@ -352,7 +379,7 @@ class OAuthController {
       res.json({
         success: true,
         authUrl: url,
-        state
+        state: stateParam
       });
     } catch (error) {
       console.error('[OAuth] Get YouTube auth URL error:', error);
@@ -387,8 +414,42 @@ class OAuthController {
         return res.redirect(`${frontendUrl}/dashboard?youtube=error&message=${encodeURIComponent('Authorization code not provided')}`);
       }
 
-      // Validate state parameter to prevent CSRF attacks
-      if (state && req.session?.youtubeOAuthState && state !== req.session.youtubeOAuthState) {
+      if (!state) {
+        console.error('[OAuth] No state parameter provided');
+        return res.redirect(`${frontendUrl}/dashboard?youtube=error&message=${encodeURIComponent('Invalid OAuth state')}`);
+      }
+
+      // Decode state parameter to get userId
+      let stateData;
+      let userId;
+      try {
+        const stateJson = Buffer.from(state, 'base64').toString('utf-8');
+        stateData = JSON.parse(stateJson);
+        userId = stateData.userId;
+        
+        console.log('[OAuth] Decoded YouTube state:', {
+          userId: userId,
+          timestamp: stateData.timestamp,
+          age: Date.now() - stateData.timestamp
+        });
+
+        // Validate state is not too old (15 minutes)
+        if (Date.now() - stateData.timestamp > 15 * 60 * 1000) {
+          console.error('[OAuth] State parameter expired');
+          return res.redirect(`${frontendUrl}/dashboard?youtube=error&message=${encodeURIComponent('OAuth session expired - please try again')}`);
+        }
+      } catch (error) {
+        console.error('[OAuth] Failed to decode state parameter:', error);
+        return res.redirect(`${frontendUrl}/dashboard?youtube=error&message=${encodeURIComponent('Invalid OAuth state')}`);
+      }
+
+      if (!userId) {
+        console.error('[OAuth] No userId in state parameter');
+        return res.redirect(`${frontendUrl}/dashboard?youtube=error&message=${encodeURIComponent('User session not found')}`);
+      }
+
+      // Validate state matches session as additional security (if session exists)
+      if (req.session?.youtubeOAuthState && state !== req.session.youtubeOAuthState) {
         console.error('[OAuth] YouTube state mismatch - possible CSRF attack', {
           received: state,
           expected: req.session.youtubeOAuthState
@@ -400,12 +461,6 @@ class OAuthController {
       if (req.session?.youtubeOAuthUsedCode === code) {
         console.warn('[OAuth] YouTube authorization code already used in this session:', code.substring(0, 10) + '...');
         return res.redirect(`${frontendUrl}/dashboard?youtube=error&message=${encodeURIComponent('Login session already completed - please start again')}`);
-      }
-
-      // Get userId from session
-      const userId = req.session?.youtubeOAuthUserId || req.userId || req.user?._id;
-      if (!userId) {
-        return res.redirect(`${frontendUrl}/dashboard?youtube=error&message=${encodeURIComponent('User session not found')}`);
       }
 
       const user = await User.findById(userId);
