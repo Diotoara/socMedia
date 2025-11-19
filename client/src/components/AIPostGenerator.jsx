@@ -103,15 +103,15 @@ export default function AIPostGenerator() {
   const fetchPublishingLimit = async () => {
     try {
       const response = await aiPostAPI.getLimit();
-      if (response.data.success) {
-        setPublishingLimit(response.data.limitInfo);
+      if (response.data.success && response.data.limitInfo) {
+        // Only set if limit info is actually available
+        if (response.data.limitInfo.available !== false) {
+          setPublishingLimit(response.data.limitInfo);
+        }
       }
     } catch (error) {
-      // Silently handle if Instagram credentials not configured yet
-      // This is expected when user hasn't set up Instagram
-      if (error.response?.data?.message !== 'Instagram credentials not configured') {
-        console.error('Failed to fetch publishing limit:', error);
-      }
+      // Silently handle errors - publishing limit is not critical
+      console.debug('Publishing limit not available:', error.message);
     }
   };
 

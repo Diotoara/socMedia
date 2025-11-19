@@ -1,7 +1,6 @@
 const express = require('express');
 const router = express.Router();
 const AIPostController = require('../controllers/ai-post.controller');
-const { authMiddleware } = require('../middleware/auth.middleware');
 
 const aiPostController = new AIPostController();
 
@@ -9,7 +8,7 @@ const aiPostController = new AIPostController();
  * POST /api/ai-post/generate
  * Generate and optionally publish AI post
  */
-router.post('/generate', authMiddleware, async (req, res) => {
+router.post('/generate', async (req, res) => {
   try {
     await aiPostController.generateAndPublishPost(req, res);
   } catch (error) {
@@ -27,7 +26,7 @@ router.post('/generate', authMiddleware, async (req, res) => {
  * GET /api/ai-post/status
  * Check if post generation is in progress
  */
-router.get('/status', authMiddleware, (req, res) => {
+router.get('/status', (req, res) => {
   aiPostController.getGenerationStatus(req, res);
 });
 
@@ -35,7 +34,7 @@ router.get('/status', authMiddleware, (req, res) => {
  * GET /api/ai-post/history
  * Get user's generated posts history
  */
-router.get('/history', authMiddleware, (req, res) => {
+router.get('/history', (req, res) => {
   aiPostController.getGeneratedPosts(req, res);
 });
 
@@ -43,7 +42,7 @@ router.get('/history', authMiddleware, (req, res) => {
  * GET /api/ai-post/limit
  * Check Instagram publishing rate limit
  */
-router.get('/limit', authMiddleware, (req, res) => {
+router.get('/limit', (req, res) => {
   aiPostController.checkPublishingLimit(req, res);
 });
 
@@ -51,7 +50,7 @@ router.get('/limit', authMiddleware, (req, res) => {
  * POST /api/ai-post/context
  * Save user account context for personalized generation
  */
-router.post('/context', authMiddleware, (req, res) => {
+router.post('/context', (req, res) => {
   aiPostController.saveUserContext(req, res);
 });
 
@@ -59,7 +58,7 @@ router.post('/context', authMiddleware, (req, res) => {
  * GET /api/ai-post/context
  * Get user's saved account context
  */
-router.get('/context', authMiddleware, (req, res) => {
+router.get('/context', (req, res) => {
   aiPostController.getUserContext(req, res);
 });
 
@@ -67,7 +66,7 @@ router.get('/context', authMiddleware, (req, res) => {
  * DELETE /api/ai-post/posts/:postId
  * Delete a specific post
  */
-router.delete('/posts/:postId', authMiddleware, (req, res) => {
+router.delete('/posts/:postId', (req, res) => {
   aiPostController.deletePost(req, res);
 });
 
@@ -75,7 +74,7 @@ router.delete('/posts/:postId', authMiddleware, (req, res) => {
  * POST /api/ai-post/api-key
  * Save and validate Gemini API key
  */
-router.post('/api-key', authMiddleware, async (req, res) => {
+router.post('/api-key', async (req, res) => {
   try {
     await aiPostController.saveApiKey(req, res);
   } catch (error) {
@@ -93,7 +92,7 @@ router.post('/api-key', authMiddleware, async (req, res) => {
  * GET /api/ai-post/api-key
  * Check if Gemini API key is configured
  */
-router.get('/api-key', authMiddleware, async (req, res) => {
+router.get('/api-key', async (req, res) => {
   try {
     await aiPostController.getApiKeyStatus(req, res);
   } catch (error) {
