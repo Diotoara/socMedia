@@ -27,6 +27,7 @@ const instagramStatusRoutes = require('./routes/instagram-status.routes');
 const statsRoutes = require('./routes/stats.routes');
 const apiConfigRoutes = require('./routes/api-config.routes');
 const debugRoutes = require('./routes/debug.routes');
+const legalRoutes = require('./routes/legal.routes');
 const metaWebhookRouter = require('./webhooks/instagram-webhook');
 
 // Import middleware
@@ -41,7 +42,7 @@ const io = new Server(server, {
       // Allow localhost with any port in development
       if (!origin || origin.startsWith('http://localhost:')) {
         callback(null, true);
-      } 
+      }
       // Allow Render production URL
       else if (origin === 'https://social-media-automaton.onrender.com') {
         callback(null, true);
@@ -102,7 +103,7 @@ app.use(session({
 // CORS middleware for development and production
 app.use((req, res, next) => {
   const origin = req.headers.origin;
-  
+
   // Allow localhost with any port in development
   if (origin && origin.startsWith('http://localhost:')) {
     res.header('Access-Control-Allow-Origin', origin);
@@ -115,15 +116,15 @@ app.use((req, res, next) => {
   else if (process.env.NODE_ENV === 'production' && origin) {
     res.header('Access-Control-Allow-Origin', origin);
   }
-  
+
   res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
   res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization');
   res.header('Access-Control-Allow-Credentials', 'true');
-  
+
   if (req.method === 'OPTIONS') {
     return res.sendStatus(200);
   }
-  
+
   next();
 });
 
@@ -139,9 +140,9 @@ app.use((req, res, next) => {
 
 // Health check endpoint
 app.get('/api/health', (req, res) => {
-  res.json({ 
+  res.json({
     status: 'ok',
-    database: database.isConnected() ? 'connected' : 'disconnected', 
+    database: database.isConnected() ? 'connected' : 'disconnected',
     timestamp: new Date().toISOString(),
     uptime: process.uptime()
   });
@@ -198,6 +199,11 @@ app.use('/api/config', authMiddleware, apiConfigRoutes);
 app.use('/api/debug', authMiddleware, debugRoutes);
 
 // ============================================
+// Legal Routes (Public - Privacy Policy & Terms)
+// ============================================
+app.use('/api/legal', legalRoutes);
+
+// ============================================
 // Meta Webhook Endpoints (Unprotected - Meta signature validated)
 // ============================================
 app.use('/webhooks/meta', metaWebhookRouter);
@@ -222,7 +228,7 @@ app.delete('/api/config/instagram', authMiddleware, (req, res) => {
 // Reply tone
 app.post('/api/config/tone', authMiddleware, async (req, res) => {
   await configController.setReplyTone(req, res);
-  
+
   // Update automation workflow if running
   if (req.body.tone) {
     automationController.updateAutomationConfig({ replyTone: req.body.tone });
@@ -286,7 +292,7 @@ if (process.env.NODE_ENV === 'production') {
     }
     express.static(path.join(__dirname, '../client/dist'))(req, res, next);
   });
-  
+
   // Handle React routing - return all non-API requests to React app
   app.use((req, res, next) => {
     if (req.path.startsWith('/api')) {
@@ -320,11 +326,11 @@ app.use(errorHandler);
 async function validateEnvironment() {
   const { ValidationService } = require('./services/encryption.service');
   const AIReplyService = require('./services/ai-reply.service');
-  
+
   console.log('='.repeat(50));
   console.log('Environment Variables Check');
   console.log('='.repeat(50));
-  
+
   // Log all ENV variable status
   const envVars = {
     MONGODB_URI: !!process.env.MONGODB_URI,
@@ -340,44 +346,44 @@ async function validateEnvironment() {
     FRONTEND_URL: process.env.FRONTEND_URL || 'not set',
     APP_URL: process.env.APP_URL || 'not set'
   };
-  
+
   Object.entries(envVars).forEach(([key, value]) => {
     const status = typeof value === 'boolean' ? (value ? '✓' : '✗') : value;
     console.log(`  ${key}: ${status}`);
   });
-  
+
   // Check for missing critical variables
   const missingCritical = Object.entries(envVars)
     .filter(([key, value]) => !value && ['MONGODB_URI', 'ENCRYPTION_KEY', 'JWT_SECRET'].includes(key))
     .map(([key]) => key);
-  
+
   if (missingCritical.length > 0) {
     console.error('\n✗ Missing critical environment variables:', missingCritical.join(', '));
     console.error('  Please check your .env file');
   }
-  
+
   // Check for missing optional variables
   const missingOptional = Object.entries(envVars)
     .filter(([key, value]) => !value && !['MONGODB_URI', 'ENCRYPTION_KEY', 'JWT_SECRET', 'NODE_ENV', 'FRONTEND_URL', 'APP_URL'].includes(key))
     .map(([key]) => key);
-  
+
   if (missingOptional.length > 0) {
     console.warn('\n⚠️  Missing optional environment variables:', missingOptional.join(', '));
     console.warn('  Some features may not work until configured');
   }
-  
+
   console.log('='.repeat(50));
-  
+
   // Check required variables
   const required = ['ENCRYPTION_KEY'];
   const missing = required.filter(key => !process.env[key]);
-  
+
   if (missing.length > 0) {
     console.error(`\n✗ Missing required environment variables: ${missing.join(', ')}`);
     console.error('  Please check your .env file');
     process.exit(1);
   }
-  
+
   // Validate ENCRYPTION_KEY format
   try {
     const keyBuffer = Buffer.from(process.env.ENCRYPTION_KEY, 'hex');
@@ -391,7 +397,7 @@ async function validateEnvironment() {
     console.error('Generate a key using: node -e "console.log(require(\'crypto\').randomBytes(32).toString(\'hex\'))"');
     process.exit(1);
   }
-  
+
   // Check and validate Gemini API key
   if (!process.env.GEMINI_API_KEY) {
     console.warn('⚠️  Warning: GEMINI_API_KEY not set. Automation will not work until configured.');
@@ -401,11 +407,11 @@ async function validateEnvironment() {
       // Validate API key format
       ValidationService.validateGeminiApiKey(process.env.GEMINI_API_KEY);
       console.log('✓ Gemini API key format is valid');
-      
+
       // Test API key by making a real request
       console.log('⏳ Validating Gemini API key...');
       const validation = await AIReplyService.validateApiKey(process.env.GEMINI_API_KEY);
-      
+
       if (validation.valid) {
         console.log('✓ Gemini API key validated successfully');
       } else {
@@ -433,21 +439,21 @@ async function initializeAutomation() {
 // Socket.IO connection handling
 io.on('connection', (socket) => {
   console.log(`[Socket.IO] Client connected: ${socket.id}`);
-  
+
   // Subscribe to job updates
   socket.on('subscribe:job', (jobId) => {
     dualPublishController.subscribeToJob(socket, jobId);
   });
-  
+
   // Unsubscribe from job updates
   socket.on('unsubscribe:job', (jobId) => {
     dualPublishController.unsubscribeFromJob(socket, jobId);
   });
-  
+
   socket.on('disconnect', () => {
     console.log(`[Socket.IO] Client disconnected: ${socket.id}`);
   });
-  
+
   socket.on('error', (error) => {
     console.error(`[Socket.IO] Socket error:`, error);
   });
@@ -458,7 +464,7 @@ server.listen(PORT, async () => {
   // Connect to MongoDB
   try {
     await database.connect();
-    
+
     // Start token refresh service after database connection
     const tokenRefreshService = require('./services/token-refresh.service');
     tokenRefreshService.start();
@@ -466,7 +472,7 @@ server.listen(PORT, async () => {
   } catch (error) {
     console.error('Failed to connect to MongoDB. Server will continue but database features will not work.');
   }
-  
+
   // Validate environment variables (including API key test)
   await validateEnvironment();
   console.log('='.repeat(50));
@@ -492,7 +498,7 @@ server.listen(PORT, async () => {
   console.log('  GET    /api/logs/export');
   console.log('  DELETE /api/logs');
   console.log('='.repeat(50));
-  
+
   // Initialize automation state after server starts
   await initializeAutomation();
 });
@@ -500,28 +506,28 @@ server.listen(PORT, async () => {
 // Graceful shutdown
 process.on('SIGTERM', async () => {
   console.log('SIGTERM received, shutting down gracefully...');
-  
+
   // Stop automation if running
   if (automationController.automationWorkflow) {
-    await automationController.stopAutomation({ body: {} }, { 
-      json: () => {},
-      status: () => ({ json: () => {} })
+    await automationController.stopAutomation({ body: {} }, {
+      json: () => { },
+      status: () => ({ json: () => { } })
     });
   }
-  
+
   process.exit(0);
 });
 
 process.on('SIGINT', async () => {
   console.log('\nSIGINT received, shutting down gracefully...');
-  
+
   // Stop automation if running
   if (automationController.automationWorkflow) {
-    await automationController.stopAutomation({ body: {} }, { 
-      json: () => {},
-      status: () => ({ json: () => {} })
+    await automationController.stopAutomation({ body: {} }, {
+      json: () => { },
+      status: () => ({ json: () => { } })
     });
   }
-  
+
   process.exit(0);
 });

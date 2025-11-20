@@ -38,7 +38,7 @@ requiredVars.forEach(varName => {
     console.log(chalk.red(`  ✗ ${varName}: Missing`));
   } else {
     console.log(chalk.green(`  ✓ ${varName}: Set`));
-    
+
     // Check for common issues
     if (varName === 'OAUTH_REDIRECT_BASE_URL') {
       const url = process.env[varName];
@@ -52,7 +52,7 @@ requiredVars.forEach(varName => {
         issues.push(`${varName} must start with http:// or https://`);
       }
     }
-    
+
     if (varName === 'INSTAGRAM_CLIENT_ID') {
       const clientId = process.env[varName];
       if (clientId.includes(' ') || clientId.includes('\n')) {
@@ -62,7 +62,7 @@ requiredVars.forEach(varName => {
         warnings.push(`${varName} seems too short - verify it's correct`);
       }
     }
-    
+
     if (varName === 'INSTAGRAM_CLIENT_SECRET') {
       const secret = process.env[varName];
       if (secret.includes(' ') || secret.includes('\n')) {
@@ -99,7 +99,10 @@ const requiredScopes = [
   'instagram_business_basic',
   'instagram_business_manage_comments',
   'instagram_business_manage_messages',
-  'instagram_business_content_publish'
+  'instagram_business_content_publish',
+  'pages_show_list',
+  'pages_read_engagement',
+  'pages_read_user_content'
 ];
 
 console.log(chalk.white('  Required Scopes (as of Jan 27, 2025):'));
@@ -183,7 +186,7 @@ if (process.env.MONGODB_URI) {
   } else {
     warnings.push('MongoDB URI format looks unusual - verify it\'s correct');
   }
-  
+
   // Check for exposed credentials
   if (uri.includes('://') && uri.includes('@')) {
     warnings.push('MongoDB URI contains credentials - ensure .env is in .gitignore');
@@ -197,11 +200,11 @@ console.log(chalk.blue('\n7. Security Checks...\n'));
 
 if (process.env.NODE_ENV === 'production') {
   console.log(chalk.green('  ✓ NODE_ENV set to production'));
-  
+
   if (redirectBase.includes('localhost')) {
     issues.push('Using localhost redirect URI in production - this will not work');
   }
-  
+
   if (!redirectBase.startsWith('https://')) {
     warnings.push('Not using HTTPS in production - Meta may reject OAuth requests');
   }
@@ -234,7 +237,7 @@ if (issues.length === 0 && warnings.length === 0) {
     });
     console.log('');
   }
-  
+
   if (warnings.length > 0) {
     console.log(chalk.yellow(`⚠ ${warnings.length} Warning(s):\n`));
     warnings.forEach((warning, i) => {

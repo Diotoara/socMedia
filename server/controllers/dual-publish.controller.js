@@ -127,7 +127,14 @@ class DualPublishController {
       const { EncryptionService } = require('../services/encryption.service');
       const encryptionService = new EncryptionService();
       
-      const instagramToken = encryptionService.decrypt(user.instagramCredentials.accessToken);
+      // Decrypt and immediately sanitize token
+      let instagramToken = encryptionService.decrypt(user.instagramCredentials.accessToken);
+      if (instagramToken) {
+        instagramToken = instagramToken
+          .replace(/[\s\n\r\t]+/g, '')  // Remove all whitespace
+          .replace(/%20/g, '')           // Remove URL-encoded spaces
+          .trim();
+      }
       let youtubeToken = null;
 
       // Check and refresh YouTube token if needed

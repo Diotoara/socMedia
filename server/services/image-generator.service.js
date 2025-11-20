@@ -27,8 +27,8 @@ class ImageGeneratorService {
   /**
    * Generate the enriched prompt
    */
-enrichPrompt(rawPrompt) {
-  return `
+  enrichPrompt(rawPrompt) {
+    return `
 ${rawPrompt}
 
 🎨 Visual Objective:
@@ -57,7 +57,7 @@ Design a high-resolution, square illustration that represents a web-development 
 📐 Output Format:
 Square image, highest resolution supported by the model, suitable for developer-audience social media posts.
 `.trim();
-}
+  }
 
 
 
@@ -117,10 +117,13 @@ Square image, highest resolution supported by the model, suitable for developer-
 
       return imageBuffer;
     } catch (error) {
-      console.error(
-        '[ImageGeneratorService] Gemini failed → switching to fallback:',
-        error.message
-      );
+      // Handle Rate Limit (429) specifically
+      if (error.message?.includes('429') || error.status === 429 || error.message?.includes('RESOURCE_EXHAUSTED')) {
+        console.warn('[ImageGeneratorService] ⚠️ Gemini API quota exceeded (Free Tier limit). Switching to fallback image generator...');
+      } else {
+        console.error('[ImageGeneratorService] Gemini generation failed:', error.message);
+      }
+
       return this.generateImageWithPollinations(enriched);
     }
   }
@@ -140,22 +143,31 @@ Square image, highest resolution supported by the model, suitable for developer-
 
       const response = await axios.get(imageUrl, {
         responseType: 'arraybuffer',
-        timeout: 30000,
+        timeout: 60000, // Increased to 60 seconds
       });
 
       return Buffer.from(response.data);
     } catch (err) {
-      console.log('[ImageGeneratorService] Pollinations failed, using placeholder...');
+      console.error('[ImageGeneratorService] Pollinations fallback failed:', err.message);
+      console.log('[ImageGeneratorService] Using placeholder image as last resort...');
       return this.generatePlaceholderImage();
     }
   }
 
   async generatePlaceholderImage() {
-    const response = await axios.get(
-      'https://via.placeholder.com/1080x1080/667eea/ffffff?text=AI+Generated+Post',
-      { responseType: 'arraybuffer' }
-    );
-    return Buffer.from(response.data);
+    try {
+      const response = await axios.get(
+        'https://placehold.co/1080x1080/667eea/ffffff.png?text=AI+Generated+Post',
+        { responseType: 'arraybuffer' }
+      );
+      return Buffer.from(response.data);
+    } catch (error) {
+      console.error('[ImageGeneratorService] Placeholder failed, creating local buffer:', error.message);
+      // Absolute last resort: Create a 1x1 pixel transparent GIF buffer or similar minimal valid image
+      // This is a 1x1 pixel PNG
+      const minimalPng = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==', 'base64');
+      return minimalPng;
+    }
   }
 
   /**

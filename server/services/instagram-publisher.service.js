@@ -1,639 +1,300 @@
+// instagram-publisher.service.js
+
 const axios = require('axios');
 const FormData = require('form-data');
+const crypto = require('crypto');
 
 /**
  * Instagram Content Publisher Service
- * Handles publishing images to Instagram using official Graph API
+ *
+ * REQUIREMENTS:
+ *  - Must use Facebook PAGE Long-Lived Access Token
+ *  - Must use Instagram Business Account ID (ig-user-id)
  */
 class InstagramPublisherService {
   constructor() {
-    // Use Facebook Graph API v24.0 consistently
     this.apiVersion = 'v24.0';
-    this.baseUrl = `https://graph.facebook.com/${this.apiVersion}`;
+    // Use Instagram Graph API endpoint (graph.instagram.com) for Instagram Login tokens
+    this.graphApiUrl = `https://graph.instagram.com`;
     this.accessToken = null;
-    this.instagramAccountId = null; // This is the ig-user-id from OAuth
+    this.instagramAccountId = null;
     this.maxRetries = 3;
-    this.retryDelay = 2000; // 2 seconds
+    this.retryDelay = 2000;
   }
 
   /**
-   * Initialize with credentials
-   * Sanitizes token to remove any whitespace
+   * Initialize with Instagram User Token + IG Business account id
    */
   initialize(accessToken, instagramAccountId) {
-    // Sanitize token - remove ALL whitespace characters
-    this.accessToken = accessToken?.replace(/\s+/g, '').trim();
+    if (accessToken) {
+      this.accessToken = accessToken
+        .replace(/[\s\n\r\t]+/g, '')
+        .replace(/%20/g, '')
+        .trim();
+    } else {
+      this.accessToken = null;
+    }
+
     this.instagramAccountId = instagramAccountId;
-  }
 
-  /**
-   * Upload image to a public server (required by Instagram API)
-   * Uses Cloudinary which is more reliable for Instagram's crawler
-   */
-  async uploadImageToPublicServer(imageBuffer, filename) {
-    // Use Cloudinary as primary (more reliable for Instagram)
-    try {
-      return await this.uploadToCloudinary(imageBuffer, filename);
-    } catch (cloudinaryError) {
-      console.error('[InstagramPublisherService] Cloudinary failed:', cloudinaryError.message);
-      
-      // Fallback to imgbb
-      try {
-        console.log('[InstagramPublisherService] Trying imgbb fallback...');
-        const formData = new FormData();
-        formData.append('image', imageBuffer.toString('base64'));
-        
-        const response = await axios.post('https://api.imgbb.com/1/upload', formData, {
-          params: {
-            key: process.env.IMGBB_API_KEY || '8ef48a1f264ea854fbd049c0e14e5c81'
-          },
-          headers: formData.getHeaders(),
-          timeout: 20000
-        });
+    console.log('[InstagramPublisherService] Initialized with:');
+    console.log('  Account ID:', instagramAccountId);
+    console.log('  Token Preview:', this.accessToken?.substring(0, 20) + '...');
+    console.log('  Token Suffix:', '...' + (this.accessToken?.slice(-10) || ''));
 
-        return response.data.data.url;
-      } catch (imgbbError) {
-        console.error('[InstagramPublisherService] imgbb also failed:', imgbbError.message);
-        throw new Error('All image upload services failed. Please check your configuration.');
-      }
+    if (!this.accessToken || this.accessToken.length < 50) {
+      console.warn('[InstagramPublisherService] WARNING: Token too short or invalid');
+    }
+
+    // We now support Instagram User Tokens via graph.instagram.com
+    if (this.accessToken && (this.accessToken.startsWith('IG') || this.accessToken.startsWith('IGQV'))) {
+      console.log('[InstagramPublisherService] Detected Instagram User Token (Standard for Business Login)');
     }
   }
 
-  /**
-   * Alternative: Upload to Cloudinary (More reliable for Instagram)
-   */
+  /** always clean token */
+  _getCleanToken() {
+    let token = this.accessToken || '';
+    token = token.replace(/[\s\n\r\t]+/g, '').replace(/%20/g, '').trim();
+    if (!token || token.length < 50) throw new Error('Invalid PAGE access token.');
+    return token;
+  }
+
+  // -----------------------------------------------------------
+  // IMAGE UPLOAD HELPERS
+  // -----------------------------------------------------------
+
+  /** Upload to Cloudinary */
   async uploadToCloudinary(imageBuffer, filename) {
-    const cloudName = process.env.CLOUDINARY_CLOUD_NAME;
-    const apiKey = process.env.CLOUDINARY_API_KEY;
-    const apiSecret = process.env.CLOUDINARY_API_SECRET;
-
-    if (!cloudName || !apiKey || !apiSecret) {
-      throw new Error('Cloudinary credentials not configured. Please set CLOUDINARY_* environment variables.');
+    const { CLOUDINARY_CLOUD_NAME, CLOUDINARY_API_KEY, CLOUDINARY_API_SECRET } = process.env;
+    if (!CLOUDINARY_CLOUD_NAME || !CLOUDINARY_API_KEY || !CLOUDINARY_API_SECRET) {
+      throw new Error('Cloudinary credentials not configured.');
     }
 
     try {
-      console.log('[InstagramPublisherService] Uploading to Cloudinary...');
-      
-      // Generate timestamp and signature for authenticated upload
       const timestamp = Math.round(Date.now() / 1000);
-      const crypto = require('crypto');
-      
-      // Create signature
-      const signatureString = `timestamp=${timestamp}${apiSecret}`;
-      const signature = crypto.createHash('sha1').update(signatureString).digest('hex');
-      
+      const signature = crypto.createHash('sha1').update(`timestamp=${timestamp}${CLOUDINARY_API_SECRET}`).digest('hex');
+
       const formData = new FormData();
       formData.append('file', imageBuffer, filename);
-      formData.append('timestamp', timestamp.toString());
-      formData.append('api_key', apiKey);
+      formData.append('timestamp', timestamp);
+      formData.append('api_key', CLOUDINARY_API_KEY);
       formData.append('signature', signature);
-      
-      const response = await axios.post(
-        `https://api.cloudinary.com/v1_1/${cloudName}/image/upload`,
+
+      const res = await axios.post(
+        `https://api.cloudinary.com/v1_1/${CLOUDINARY_CLOUD_NAME}/image/upload`,
         formData,
-        {
-          headers: formData.getHeaders(),
-          timeout: 30000
-        }
+        { headers: formData.getHeaders() }
       );
 
-      console.log('[InstagramPublisherService] Cloudinary upload successful');
-      return response.data.secure_url;
-      
-    } catch (error) {
-      console.error('[InstagramPublisherService] Cloudinary upload failed:', error.message);
-      throw new Error(`Cloudinary upload failed: ${error.message}`);
+      return res.data.secure_url;
+    } catch (err) {
+      throw new Error('Cloudinary upload failed: ' + err.message);
     }
   }
 
-  /**
-   * Validate image URL before sending to Instagram
-   */
-  async validateImageUrl(imageUrl) {
+  /** Upload using Cloudinary + fallback to imgbb */
+  async uploadImageToPublicServer(imageBuffer, filename) {
     try {
-      console.log('[InstagramPublisherService] Validating image URL...');
-      
-      // Check URL format
-      if (!imageUrl || typeof imageUrl !== 'string') {
-        throw new Error('Invalid image URL');
-      }
-
-      // Check if URL ends with image extension
-      const validExtensions = ['.jpg', '.jpeg', '.png'];
-      const hasValidExtension = validExtensions.some(ext => 
-        imageUrl.toLowerCase().includes(ext)
-      );
-
-      if (!hasValidExtension) {
-        console.warn('[InstagramPublisherService] URL may not have valid image extension:', imageUrl);
-      }
-
-      // Make HEAD request to check if image is accessible
-      const headResponse = await axios.head(imageUrl, { 
-        timeout: 10000,
-        maxRedirects: 5,
-        validateStatus: function (status) {
-          // Accept 2xx and 3xx status codes
-          return status >= 200 && status < 400;
-        }
-      });
-
-      console.log('[InstagramPublisherService] Image validation:', {
-        status: headResponse.status,
-        contentType: headResponse.headers['content-type'],
-        contentLength: headResponse.headers['content-length']
-      });
-
-      // Check if content type is image
-      const contentType = headResponse.headers['content-type'];
-      if (!contentType || !contentType.startsWith('image/')) {
-        throw new Error(`Invalid content type: ${contentType}. Must be image/jpeg or image/png`);
-      }
-
-      // Check if status is 200
-      if (headResponse.status !== 200) {
-        throw new Error(`Image URL returned status ${headResponse.status}`);
-      }
-
-      console.log('[InstagramPublisherService] Image URL validated successfully ✓');
-      return true;
-    } catch (error) {
-      console.error('[InstagramPublisherService] Image validation failed:', error.message);
-      
-      // Provide specific error messages for common issues
-      if (error.response?.status === 404) {
-        throw new Error(`Image URL not found (404). The image may have been deleted or the URL is incorrect.`);
-      } else if (error.code === 'ENOTFOUND') {
-        throw new Error(`Image URL domain not found. Please check the URL.`);
-      } else if (error.code === 'ETIMEDOUT') {
-        throw new Error(`Image URL request timed out. The server may be slow or unreachable.`);
-      }
-      
-      throw new Error(`Image URL validation failed: ${error.message}. Please ensure the URL is publicly accessible and points directly to an image file.`);
-    }
-  }
-
-  /**
-   * Step 1: Create media container
-   */
-  async createMediaContainer(imageUrl, caption, location = null) {
-    try {
-      console.log('[InstagramPublisherService] Creating media container...');
-      
-      // Validate image URL first
-      await this.validateImageUrl(imageUrl);
-      
-      // Ensure caption is properly formatted
-      const cleanCaption = caption ? String(caption).trim() : '';
-      
-      // Sanitize token before use
-      const cleanToken = this.accessToken?.replace(/\s+/g, '').trim();
-      
-      // Log the image URL for debugging
-      console.log('[InstagramPublisherService] Image URL:', imageUrl);
-      console.log('[InstagramPublisherService] Caption length:', cleanCaption.length);
-      
-      const params = {
-        access_token: cleanToken,
-        image_url: imageUrl,
-        caption: cleanCaption
-        // Note: media_type is NOT needed for images - it's inferred from image_url
-      };
-      
-      // Add location if provided and valid (location_id must be a valid Instagram location page ID)
-      // Note: Location feature is disabled by default as it requires valid Instagram location IDs
-      // To enable: Get location_id from Instagram's location search API first
-      if (location && String(location).trim()) {
-        console.log(`[InstagramPublisherService] Adding location: ${location}`);
-        params.location_id = location;
-      }
-      
-      const response = await axios.post(
-        `${this.baseUrl}/${this.instagramAccountId}/media`,
-        null,
-        { params }
-      );
-
-      const containerId = response.data.id;
-      console.log(`[InstagramPublisherService] Container created: ${containerId}`);
-      
-      return containerId;
-    } catch (error) {
-      console.error('[InstagramPublisherService] Create container error:', {
-        message: error.message,
-        response: error.response?.data,
-        imageUrl: imageUrl
-      });
-      throw new Error(`Failed to create media container: ${error.response?.data?.error?.message || error.message}`);
-    }
-  }
-
-  /**
-   * Step 2: Check container status
-   */
-  async checkContainerStatus(containerId) {
-    try {
-      // Sanitize token before use
-      const cleanToken = this.accessToken?.replace(/\s+/g, '').trim();
-      
-      const response = await axios.get(
-        `${this.baseUrl}/${containerId}`,
-        {
-          params: {
-            access_token: cleanToken,
-            fields: 'status_code' // Only request status_code, not error_message
-          }
-        }
-      );
-
-      console.log(`[InstagramPublisher] Container ${containerId} status:`, response.data);
-      return response.data;
-    } catch (error) {
-      console.error('[InstagramPublisher] Check container status error:', error.response?.data || error.message);
-      throw new Error(`Failed to check container status: ${error.response?.data?.error?.message || error.message}`);
-    }
-  }
-
-  /**
-   * Step 3: Publish media container
-   */
-  async publishMediaContainer(containerId) {
-    try {
-      console.log('[InstagramPublisherService] Publishing media container...');
-      
-      // Sanitize token before use
-      const cleanToken = this.accessToken?.replace(/\s+/g, '').trim();
-      
-      const response = await axios.post(
-        `${this.baseUrl}/${this.instagramAccountId}/media_publish`,
-        null,
-        {
-          params: {
-            access_token: cleanToken,
-            creation_id: containerId
-          }
-        }
-      );
-
-      const mediaId = response.data.id;
-      console.log(`[InstagramPublisherService] Post published successfully: ${mediaId}`);
-      
-      return mediaId;
-    } catch (error) {
-      throw new Error(`Failed to publish media: ${error.response?.data?.error?.message || error.message}`);
-    }
-  }
-
-  /**
-   * Complete workflow: Upload image and publish to Instagram
-   */
-  async publishPost(imageBuffer, caption, filename = 'post.jpg', location = null) {
-    try {
-      // Step 1: Upload image to public server
-      console.log('[InstagramPublisherService] Uploading image to public server...');
-      const imageUrl = await this.uploadImageToPublicServer(imageBuffer, filename);
-      console.log(`[InstagramPublisherService] Image uploaded: ${imageUrl}`);
-
-      // Step 2: Create media container with location
-      const containerId = await this.createMediaContainer(imageUrl, caption, location);
-
-      // Step 3: Wait for container to be ready (Instagram processes the image)
-      console.log('[InstagramPublisherService] Waiting for container to be ready...');
-      await this.waitForContainerReady(containerId);
-
-      // Step 4: Publish the container
-      const mediaId = await this.publishMediaContainer(containerId);
-
-      return {
-        success: true,
-        mediaId,
-        imageUrl,
-        message: 'Post published successfully to Instagram'
-      };
-    } catch (error) {
-      console.error('[InstagramPublisherService] Publish failed:', error.message);
-      throw error;
-    }
-  }
-
-  /**
-   * Wait for container to be ready before publishing
-   * For images: Usually ready immediately
-   * For videos: May take time to process
-   */
-  async waitForContainerReady(containerId, maxAttempts = 10) {
-    console.log('[InstagramPublisherService] Checking container status...');
-    
-    for (let i = 0; i < maxAttempts; i++) {
+      return await this.uploadToCloudinary(imageBuffer, filename);
+    } catch {
+      console.warn('Cloudinary failed. Trying imgbb...');
       try {
-        const status = await this.checkContainerStatus(containerId);
-        
-        console.log(`[InstagramPublisherService] Container status (attempt ${i + 1}/${maxAttempts}):`, status);
-        
-        // Check if container is ready
-        if (status.status_code === 'FINISHED') {
-          console.log('[InstagramPublisherService] Container is ready ✓');
-          return true;
-        }
-        
-        // Check for errors
-        if (status.status_code === 'ERROR') {
-          throw new Error(`Container processing failed with status: ${status.status_code}`);
-        }
-        
-        // For images, if no status_code is returned, it might be ready immediately
-        if (!status.status_code) {
-          console.log('[InstagramPublisherService] No status_code - container may be ready (image)');
-          return true;
-        }
-
-        // Wait 2 seconds before checking again
-        if (i < maxAttempts - 1) {
-          console.log(`[InstagramPublisherService] Status: ${status.status_code}, waiting 2s...`);
-          await new Promise(resolve => setTimeout(resolve, 2000));
-        }
-      } catch (error) {
-        // If status check fails, it might mean the container is ready (for images)
-        console.log('[InstagramPublisherService] Status check returned error, assuming ready:', error.message);
-        return true;
+        const formData = new FormData();
+        formData.append('image', imageBuffer.toString('base64'));
+        const res = await axios.post('https://api.imgbb.com/1/upload', formData, {
+          params: { key: process.env.IMGBB_API_KEY },
+          headers: formData.getHeaders()
+        });
+        return res.data.data.url;
+      } catch {
+        throw new Error('Both Cloudinary and imgbb upload failed.');
       }
     }
+  }
 
-    // If we've waited long enough, try to publish anyway (might work for images)
-    console.log('[InstagramPublisherService] Max attempts reached, proceeding to publish...');
+  /** Validate image URL */
+  async validateImageUrl(imageUrl) {
+    if (!imageUrl || typeof imageUrl !== 'string') throw new Error('Invalid image URL');
+
+    const head = await axios.head(imageUrl, { timeout: 10000, maxRedirects: 5 });
+    if (!head.headers['content-type']?.startsWith('image/')) {
+      throw new Error('URL is not an image type.');
+    }
     return true;
   }
 
-  /**
-   * Check publishing rate limit
-   */
-  async checkPublishingLimit() {
+  // -----------------------------------------------------------
+  // IMAGE PUBLISH FLOW
+  // -----------------------------------------------------------
+
+  /** 1) Create Container */
+  async createMediaContainer(imageUrl, caption) {
+    await this.validateImageUrl(imageUrl);
+    const token = this._getCleanToken();
+
+    const formData = new FormData();
+    formData.append('image_url', imageUrl);
+    formData.append('caption', caption || '');
+    formData.append('access_token', token);
+
     try {
-      // Sanitize token before use
-      const cleanToken = this.accessToken?.replace(/\s+/g, '').trim();
-      
-      const response = await axios.get(
-        `${this.baseUrl}/${this.instagramAccountId}/content_publishing_limit`,
-        {
-          params: {
-            access_token: cleanToken,
-            fields: 'quota_usage,config'
-          }
-        }
+      const res = await axios.post(
+        `${this.graphApiUrl}/${this.instagramAccountId}/media`,
+        formData,
+        { headers: formData.getHeaders() }
       );
-
-      return response.data;
+      return res.data.id;
     } catch (error) {
-      // Handle error code 190 specifically
-      const graphError = error.response?.data?.error;
-      const normalizedError = new Error(
-        graphError?.message
-          ? `Failed to check publishing limit: ${graphError.message}`
-          : error.message || 'Failed to check publishing limit.'
-      );
-
-      // Preserve useful metadata for upstream handlers
-      normalizedError.status = error.response?.status;
-      normalizedError.code = graphError?.code || error.code;
-      normalizedError.type = graphError?.type;
-
-      if (graphError?.code === 190) {
-        normalizedError.message = 'Your Instagram connection appears broken. Please reconnect your Instagram Business account.';
-      }
-
-      throw normalizedError;
+      throw new Error('Failed to create container: ' + (error.response?.data?.error?.message || error.message));
     }
   }
 
-  /**
-   * Publish Reels video to Instagram
-   * Follows Meta's Reels Publishing API flow
-   * @param {Buffer} videoBuffer - Video file buffer
-   * @param {string} caption - Caption with hashtags
-   * @param {string} filename - Video filename
-   * @param {string} coverUrl - Optional cover image URL
-   */
-  async publishReel(videoBuffer, caption, filename = 'reel.mp4', coverUrl = null) {
+  /** 2) Check Container Status */
+  async checkContainerStatus(containerId) {
+    const token = this._getCleanToken();
+    const res = await axios.get(`${this.graphApiUrl}/${containerId}`, {
+      params: { access_token: token, fields: 'status_code,error_message' }
+    });
+    return res.data;
+  }
+
+  /** 3) Wait Until Container is Ready */
+  async waitForContainerReady(containerId) {
+    for (let i = 0; i < 10; i++) {
+      const status = await this.checkContainerStatus(containerId);
+      if (status.status_code === 'FINISHED') return true;
+      await new Promise(r => setTimeout(r, 2000));
+    }
+    return true;
+  }
+
+  /** 4) Publish Container */
+  async publishMediaContainer(containerId) {
+    const token = this._getCleanToken();
+    const formData = new FormData();
+    formData.append('creation_id', containerId);
+    formData.append('access_token', token);
+
     try {
-      console.log('[InstagramPublisher] Starting Reels publish workflow');
-      
-      // Step 1: Upload video to public server (required for Instagram API)
-      const videoUrl = await this.uploadVideoToPublicServer(videoBuffer, filename);
-      console.log('[InstagramPublisher] Video uploaded to public URL:', videoUrl);
-      
-      // Step 2: Create Reels media container
-      const containerId = await this.createReelsContainer(videoUrl, caption, coverUrl);
-      console.log('[InstagramPublisher] Reels container created:', containerId);
-      
-      // Step 3: Wait for container to be ready (Reels processing takes longer)
-      await this.waitForReelsContainerReady(containerId);
-      console.log('[InstagramPublisher] Reels container ready for publishing');
-      
-      // Step 4: Publish Reels container
-      const result = await this.publishReelsContainer(containerId);
-      console.log('[InstagramPublisher] Reels published successfully:', result.id);
-      
-      return {
-        success: true,
-        id: result.id,
-        permalink: `https://www.instagram.com/reel/${result.id}/`,
-        mediaType: 'REELS',
-        publishResponse: result
-      };
+      const res = await axios.post(
+        `${this.graphApiUrl}/${this.instagramAccountId}/media_publish`,
+        formData,
+        { headers: formData.getHeaders() }
+      );
+      return res.data.id;
     } catch (error) {
-      console.error('[InstagramPublisher] Reels publish error:', error);
-      throw new Error(`Instagram Reels publish failed: ${error.message}`);
+      throw new Error('Failed to publish image: ' + (error.response?.data?.error?.message || error.message));
     }
   }
 
-  /**
-   * Upload video to a public server (required by Instagram API)
-   * For production, use AWS S3, Cloudinary, etc.
-   */
+  /** Main Publish Function */
+  async publishPost(imageBuffer, caption, filename = 'post.jpg') {
+    const imageUrl = await this.uploadImageToPublicServer(imageBuffer, filename);
+    const containerId = await this.createMediaContainer(imageUrl, caption);
+    await this.waitForContainerReady(containerId);
+    const mediaId = await this.publishMediaContainer(containerId);
+    return { success: true, mediaId, imageUrl };
+  }
+
+  // -----------------------------------------------------------
+  // REELS (VIDEO) PUBLISH FLOW
+  // -----------------------------------------------------------
+
   async uploadVideoToPublicServer(videoBuffer, filename) {
     try {
-      // Use Cloudinary for video hosting (supports videos)
-      const cloudName = process.env.CLOUDINARY_CLOUD_NAME;
-      const apiKey = process.env.CLOUDINARY_API_KEY;
-      const apiSecret = process.env.CLOUDINARY_API_SECRET;
-
-      if (!cloudName || !apiKey || !apiSecret) {
-        throw new Error('Cloudinary credentials required for video upload. Set CLOUDINARY_* environment variables.');
-      }
-
-      // Generate signature for authenticated upload
+      const { CLOUDINARY_CLOUD_NAME, CLOUDINARY_API_KEY, CLOUDINARY_API_SECRET } = process.env;
       const timestamp = Math.round(Date.now() / 1000);
-      const crypto = require('crypto');
-      
-      // Create signature
-      const stringToSign = `timestamp=${timestamp}${apiSecret}`;
-      const signature = crypto.createHash('sha1').update(stringToSign).digest('hex');
+      const signature = crypto.createHash('sha1').update(`timestamp=${timestamp}${CLOUDINARY_API_SECRET}`).digest('hex');
 
-      const FormData = require('form-data');
       const formData = new FormData();
-      
-      formData.append('file', videoBuffer, { filename });
-      formData.append('api_key', apiKey);
+      formData.append('file', videoBuffer, filename);
+      formData.append('api_key', CLOUDINARY_API_KEY);
       formData.append('timestamp', timestamp);
       formData.append('signature', signature);
-      
-      const response = await axios.post(
-        `https://api.cloudinary.com/v1_1/${cloudName}/video/upload`,
+
+      const res = await axios.post(
+        `https://api.cloudinary.com/v1_1/${CLOUDINARY_CLOUD_NAME}/video/upload`,
         formData,
+        { headers: formData.getHeaders() }
+      );
+
+      return res.data.secure_url;
+    } catch (err) {
+      throw new Error('Video upload failed: ' + err.message);
+    }
+  }
+
+  async createReelsContainer(videoUrl, caption) {
+    const token = this._getCleanToken();
+    const formData = new FormData();
+    formData.append('media_type', 'REELS');
+    formData.append('video_url', videoUrl);
+    formData.append('caption', caption || '');
+    formData.append('access_token', token);
+
+    try {
+      const res = await axios.post(
+        `${this.graphApiUrl}/${this.instagramAccountId}/media`,
+        formData,
+        { headers: formData.getHeaders() }
+      );
+      return res.data.id;
+    } catch (e) {
+      throw new Error('Failed to create Reels container: ' + e.message);
+    }
+  }
+
+  /**
+   * Check Instagram Content Publishing Limit/Quota
+   * This endpoint checks the rate limit for content publishing
+   */
+  async checkPublishingLimit() {
+    const token = this._getCleanToken();
+
+    try {
+      // Query for content publishing limit info
+      const res = await axios.get(
+        `${this.graphApiUrl}/${this.instagramAccountId}/content_publishing_limit`,
         {
-          headers: {
-            ...formData.getHeaders()
+          params: {
+            access_token: token,
+            fields: 'quota_usage,config'
           },
-          maxContentLength: Infinity,
-          maxBodyLength: Infinity
+          timeout: 10000
         }
       );
 
-      console.log('[InstagramPublisher] Cloudinary upload successful:', response.data.secure_url);
-      return response.data.secure_url;
-    } catch (error) {
-      console.error('[InstagramPublisher] Cloudinary upload error:', error.response?.data || error.message);
-      throw new Error(`Video upload failed: ${error.response?.data?.error?.message || error.message}`);
-    }
-  }
+      const data = res.data?.data?.[0];
 
-  /**
-   * Create Reels media container
-   * POST /{ig-user-id}/media
-   */
-  async createReelsContainer(videoUrl, caption, coverUrl = null) {
-    try {
-      const params = {
-        media_type: 'REELS',
-        video_url: videoUrl,
-        caption: caption,
-        access_token: this.accessToken
+      if (!data) {
+        return {
+          available: false,
+          message: 'Publishing limit information not available for this account'
+        };
+      }
+
+      return {
+        available: true,
+        quotaUsage: data.quota_usage,
+        config: data.config,
+        message: `Quota: ${data.quota_usage || 0} posts used`
       };
-
-      // Add cover image if provided
-      if (coverUrl) {
-        params.cover_url = coverUrl;
-      }
-
-      const response = await axios.post(
-        `${this.baseUrl}/${this.instagramAccountId}/media`,
-        null,
-        { params }
-      );
-
-      if (!response.data.id) {
-        throw new Error('No container ID returned from Instagram API');
-      }
-
-      return response.data.id;
     } catch (error) {
-      console.error('[InstagramPublisher] Create Reels container error:', error.response?.data || error.message);
-      throw new Error(`Failed to create Reels container: ${error.response?.data?.error?.message || error.message}`);
+      // If endpoint is not available, return informative message
+      if (error.response?.status === 400 || error.response?.data?.error?.code === 100) {
+        throw new Error('Publishing limit check not supported with current token type or account.');
+      }
+
+      throw new Error(`Failed to check publishing limit: ${error.response?.data?.error?.message || error.message}`);
     }
   }
 
-  /**
-   * Wait for Reels container to be ready (longer timeout for video processing)
-   */
-  async waitForReelsContainerReady(containerId, maxAttempts = 20) {
-    console.log(`[InstagramPublisher] Waiting for Reels container ${containerId} to be ready...`);
-    
-    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-      try {
-        const status = await this.checkContainerStatus(containerId);
-        
-        console.log(`[InstagramPublisher] Container status (attempt ${attempt}/${maxAttempts}):`, {
-          status_code: status.status_code,
-          status: status.status,
-          error_message: status.error_message
-        });
-        
-        if (status.status_code === 'FINISHED') {
-          console.log('[InstagramPublisher] Reels container is ready!');
-          return true;
-        }
-        
-        if (status.status_code === 'ERROR') {
-          const errorMsg = status.error_message || status.status || 'Unknown error';
-          console.error('[InstagramPublisher] Container processing failed:', errorMsg);
-          throw new Error(`Container processing failed: ${errorMsg}`);
-        }
-        
-        // Status is likely 'IN_PROGRESS' or 'PUBLISHED'
-        // Wait longer for Reels processing (exponential backoff)
-        const delay = Math.min(this.retryDelay * attempt, 10000); // Max 10 seconds
-        console.log(`[InstagramPublisher] Reels container status: ${status.status_code}, waiting ${delay}ms...`);
-        await new Promise(resolve => setTimeout(resolve, delay));
-        
-      } catch (error) {
-        console.error(`[InstagramPublisher] Error checking container status (attempt ${attempt}/${maxAttempts}):`, error.message);
-        
-        if (attempt === maxAttempts) {
-          throw new Error(`Reels container not ready after ${maxAttempts} attempts: ${error.message}`);
-        }
-        
-        // Wait before retry
-        await new Promise(resolve => setTimeout(resolve, this.retryDelay));
-      }
-    }
-    
-    throw new Error(`Reels container not ready after ${maxAttempts} attempts - timeout`);
-  }
-
-  /**
-   * Publish Reels container
-   * POST /{ig-user-id}/media_publish
-   */
-  async publishReelsContainer(containerId) {
-    try {
-      const response = await axios.post(
-        `${this.baseUrl}/${this.instagramAccountId}/media_publish`,
-        null,
-        {
-          params: {
-            creation_id: containerId,
-            access_token: this.accessToken
-          }
-        }
-      );
-
-      if (!response.data.id) {
-        throw new Error('No media ID returned from Instagram publish API');
-      }
-
-      return response.data;
-    } catch (error) {
-      console.error('[InstagramPublisher] Publish Reels container error:', error.response?.data || error.message);
-      
-      // Handle rate limiting
-      if (error.response?.status === 429) {
-        throw new Error('Instagram API rate limit exceeded. Please try again later.');
-      }
-      
-      throw new Error(`Failed to publish Reels: ${error.response?.data?.error?.message || error.message}`);
-    }
-  }
-
-  /**
-   * Get published media details
-   */
-  async getMediaDetails(mediaId) {
-    try {
-      const response = await axios.get(
-        `${this.baseUrl}/${mediaId}`,
-        {
-          params: {
-            fields: 'id,media_type,media_url,permalink,caption,timestamp,like_count,comments_count',
-            access_token: this.accessToken
-          }
-        }
-      );
-
-      return response.data;
-    } catch (error) {
-      console.error('[InstagramPublisher] Get media details error:', error.response?.data || error.message);
-      throw new Error(`Failed to get media details: ${error.response?.data?.error?.message || error.message}`);
-    }
+  async publishReel(videoBuffer, caption, filename = 'reel.mp4') {
+    const videoUrl = await this.uploadVideoToPublicServer(videoBuffer, filename);
+    const containerId = await this.createReelsContainer(videoUrl, caption);
+    await this.waitForContainerReady(containerId);
+    return await this.publishMediaContainer(containerId);
   }
 }
 

@@ -258,8 +258,15 @@ class OAuthController {
       // Skip additional verification since Instagram User Access Tokens work with graph.instagram.com
       console.log('[OAuth] Token verified successfully via profile fetch');
 
-      // Encrypt and save token with all required fields including debug info
-      const encryptedToken = encryptionService.encrypt(longLivedResult.accessToken);
+      // Sanitize and encrypt token - CRITICAL for avoiding OAuth errors
+      let cleanToken = longLivedResult.accessToken;
+      if (cleanToken) {
+        cleanToken = cleanToken
+          .replace(/[\s\n\r\t]+/g, '')  // Remove all whitespace
+          .replace(/%20/g, '')           // Remove URL-encoded spaces
+          .trim();
+      }
+      const encryptedToken = encryptionService.encrypt(cleanToken);
       // Handle expires_at = 0 (means token doesn't expire - long-lived token)
       const expiresAt = validation.expiresAt && validation.expiresAt > 0
         ? new Date(validation.expiresAt * 1000)

@@ -31,7 +31,7 @@ class InstagramOAuthService {
     this.graphFacebookApiUrl = `https://graph.facebook.com/${this.apiVersion}`;
     this.graphApiUrl = this.graphFacebookApiUrl; // Backwards compatibility for downstream services
     this.debugTokenUrl = `${this.graphFacebookApiUrl}/debug_token`;
-    
+
     // Required scopes for Instagram Graph API
     // Instagram works only with Instagram Professional (Business/Creator) accounts
     this.requiredScopes = [
@@ -66,7 +66,7 @@ class InstagramOAuthService {
    */
   generateAuthUrl(clientId, redirectUri, state = null) {
     const debug = this.debugMode ? new OAuthDebugger('Instagram') : null;
-    
+
     try {
       debug?.logStep('Generate Auth URL', {
         clientId: clientId?.substring(0, 10) + '...',
@@ -76,7 +76,7 @@ class InstagramOAuthService {
 
       const stateParam = state || crypto.randomBytes(16).toString('hex');
       const scope = this.requiredScopes.join(',');
-      
+
       const params = new URLSearchParams({
         client_id: clientId,
         redirect_uri: redirectUri,
@@ -86,7 +86,7 @@ class InstagramOAuthService {
       });
 
       const authUrl = `${this.authUrl}?${params.toString()}`;
-      
+
       debug?.logStep('Auth URL Generated', {
         url: authUrl.substring(0, 100) + '...',
         state: stateParam
@@ -106,7 +106,7 @@ class InstagramOAuthService {
    */
   async exchangeCodeForToken(clientId, clientSecret, code, redirectUri) {
     const debug = this.debugMode ? new OAuthDebugger('Instagram') : null;
-    
+
     try {
       debug?.logStep('Exchange Code for Token', {
         clientId: clientId?.substring(0, 10) + '...',
@@ -203,10 +203,10 @@ class InstagramOAuthService {
    */
   async getLongLivedToken(clientId, clientSecret, shortLivedToken) {
     const debug = this.debugMode ? new OAuthDebugger('Instagram') : null;
-    
+
     try {
       debug?.analyzeToken(shortLivedToken, 'Short-Lived Token Input');
-      
+
       debug?.logStep('Exchange for Long-Lived Token', {
         clientSecret: clientSecret ? '***' + clientSecret.substring(clientSecret.length - 4) : 'missing',
         shortLivedTokenLength: shortLivedToken?.length,
@@ -273,16 +273,16 @@ class InstagramOAuthService {
       }
 
       console.error('[InstagramOAuth] Long-lived token error:', error.response?.data || error.message);
-      
+
       // Handle "Cannot parse access token" error specifically
-      if (error.response?.data?.error?.code === 190 || 
-          error.response?.data?.error?.message?.includes('Cannot parse access token')) {
+      if (error.response?.data?.error?.code === 190 ||
+        error.response?.data?.error?.message?.includes('Cannot parse access token')) {
         return {
           success: false,
           error: 'Your connection appears broken. Please reconnect your Instagram Business account.'
         };
       }
-      
+
       return {
         success: false,
         error: error.response?.data?.error?.message || error.message
@@ -301,7 +301,7 @@ class InstagramOAuthService {
     try {
       // Sanitize token - remove ALL whitespace characters
       const cleanToken = accessToken?.replace(/\s+/g, '').trim();
-      
+
       const params = new URLSearchParams({
         grant_type: 'ig_refresh_token',
         access_token: cleanToken
@@ -320,16 +320,16 @@ class InstagramOAuthService {
       };
     } catch (error) {
       console.error('[InstagramOAuth] Token refresh error:', error.response?.data || error.message);
-      
+
       // Handle "Cannot parse access token" error specifically
-      if (error.response?.data?.error?.code === 190 || 
-          error.response?.data?.error?.message?.includes('Cannot parse access token')) {
+      if (error.response?.data?.error?.code === 190 ||
+        error.response?.data?.error?.message?.includes('Cannot parse access token')) {
         return {
           success: false,
           error: 'Your connection appears broken. Please reconnect your Instagram Business account.'
         };
       }
-      
+
       return {
         success: false,
         error: error.response?.data?.error?.message || error.message
@@ -344,15 +344,15 @@ class InstagramOAuthService {
    */
   async validateToken(accessToken, options = {}) {
     const debug = this.debugMode ? new OAuthDebugger('Instagram') : null;
-    
+
     try {
       debug?.analyzeToken(accessToken, 'Token to Validate (Raw)');
-      
+
       const cleanToken = accessToken?.replace(/\s+/g, '').trim();
       const appAccessToken = this._resolveAppAccessToken(options.appAccessToken);
 
       debug?.analyzeToken(cleanToken, 'Token to Validate (Sanitized)');
-      
+
       debug?.logStep('Validate Token', {
         tokenLength: cleanToken?.length,
         hasAppAccessToken: !!appAccessToken,
@@ -522,7 +522,7 @@ class InstagramOAuthService {
         statusText: error.response?.statusText,
         errorCode: error.response?.data?.error?.code
       });
-      
+
       // Handle error code 190 specifically (invalid token)
       if (error.response?.data?.error?.code === 190) {
         const errorMsg = error.response.data.error.message;
@@ -534,10 +534,10 @@ class InstagramOAuthService {
           };
         }
       }
-      
+
       // Provide more specific error messages
       let errorMessage = error.response?.data?.error?.message || error.message;
-      
+
       if (errorMessage.includes('Cannot parse access token')) {
         errorMessage = 'Your connection appears broken. Please reconnect your Instagram Business account.';
       } else if (errorMessage.includes('Invalid OAuth')) {
@@ -545,7 +545,7 @@ class InstagramOAuthService {
       } else if (errorMessage.includes('OAuthException')) {
         errorMessage = 'Facebook OAuth error: ' + errorMessage + '. Please ensure your app has the correct permissions configured.';
       }
-      
+
       return {
         success: false,
         error: errorMessage,
@@ -564,10 +564,10 @@ class InstagramOAuthService {
   async verifyTokenWorks(accessToken, igAccountId) {
     try {
       console.log('[InstagramOAuth] Verifying token works with simple API call...');
-      
+
       // Sanitize token - remove ALL whitespace characters
       const cleanToken = accessToken?.replace(/\s+/g, '').trim();
-      
+
       // Make a simple GET request to verify token works using Facebook Graph API
       const response = await axios.get(`${this.graphApiUrl}/${igAccountId}`, {
         params: {
@@ -577,7 +577,7 @@ class InstagramOAuthService {
       });
 
       console.log('[InstagramOAuth] Token verification successful:', response.data);
-      
+
       return {
         success: true,
         verified: true
@@ -590,7 +590,7 @@ class InstagramOAuthService {
         error_code: error.response?.data?.error?.code,
         error_subcode: error.response?.data?.error?.error_subcode
       });
-      
+
       // Handle error code 190 specifically
       if (error.response?.data?.error?.code === 190) {
         return {
@@ -601,7 +601,7 @@ class InstagramOAuthService {
           errorSubcode: error.response?.data?.error?.error_subcode
         };
       }
-      
+
       return {
         success: false,
         verified: false,
@@ -620,7 +620,7 @@ class InstagramOAuthService {
   async debugToken(accessToken, appAccessToken) {
     try {
       console.log('[InstagramOAuth] Debugging token...');
-      
+
       // Sanitize tokens
       const cleanToken = accessToken?.replace(/\s+/g, '').trim();
       const resolvedAppToken = this._resolveAppAccessToken(appAccessToken);
@@ -660,7 +660,7 @@ class InstagramOAuthService {
         response: error.response?.data,
         errorCode: error.response?.data?.error?.code
       });
-      
+
       // Handle error code 190 specifically
       if (error.response?.data?.error?.code === 190) {
         return {
@@ -669,7 +669,7 @@ class InstagramOAuthService {
           errorCode: 190
         };
       }
-      
+
       return {
         success: false,
         error: error.response?.data?.error?.message || error.message,
@@ -701,7 +701,7 @@ class InstagramOAuthService {
       };
     } catch (error) {
       console.error('[InstagramOAuth] Token info error:', error.response?.data || error.message);
-      
+
       // Handle error code 190 specifically
       if (error.response?.data?.error?.code === 190) {
         return {
@@ -710,7 +710,7 @@ class InstagramOAuthService {
           errorCode: 190
         };
       }
-      
+
       return {
         success: false,
         error: error.response?.data?.error?.message || error.message,
@@ -727,7 +727,7 @@ class InstagramOAuthService {
     try {
       // Sanitize token
       const cleanToken = accessToken?.replace(/\s+/g, '').trim();
-      
+
       const response = await axios.get(`${this.graphApiUrl}/${igAccountId}/media`, {
         params: {
           fields: 'id,caption,media_type,media_url,permalink,timestamp,like_count,comments_count',
@@ -743,7 +743,7 @@ class InstagramOAuthService {
       };
     } catch (error) {
       console.error('[InstagramOAuth] Get media error:', error.response?.data || error.message);
-      
+
       // Handle error code 190 specifically
       if (error.response?.data?.error?.code === 190) {
         return {
@@ -752,7 +752,7 @@ class InstagramOAuthService {
           errorCode: 190
         };
       }
-      
+
       return {
         success: false,
         error: error.response?.data?.error?.message || error.message,
@@ -769,7 +769,7 @@ class InstagramOAuthService {
     try {
       // Sanitize token
       const cleanToken = accessToken?.replace(/\s+/g, '').trim();
-      
+
       const response = await axios.get(`${this.graphApiUrl}/${mediaId}/comments`, {
         params: {
           fields: 'id,text,username,timestamp,like_count',
@@ -783,7 +783,7 @@ class InstagramOAuthService {
       };
     } catch (error) {
       console.error('[InstagramOAuth] Get comments error:', error.response?.data || error.message);
-      
+
       // Handle error code 190 specifically
       if (error.response?.data?.error?.code === 190) {
         return {
@@ -792,7 +792,7 @@ class InstagramOAuthService {
           errorCode: 190
         };
       }
-      
+
       return {
         success: false,
         error: error.response?.data?.error?.message || error.message,
@@ -809,7 +809,7 @@ class InstagramOAuthService {
     try {
       // Sanitize token
       const cleanToken = accessToken?.replace(/\s+/g, '').trim();
-      
+
       const response = await axios.post(`${this.graphApiUrl}/${commentId}/replies`, {
         message: message,
         access_token: cleanToken
@@ -821,7 +821,7 @@ class InstagramOAuthService {
       };
     } catch (error) {
       console.error('[InstagramOAuth] Reply to comment error:', error.response?.data || error.message);
-      
+
       // Handle error code 190 specifically
       if (error.response?.data?.error?.code === 190) {
         return {
@@ -830,7 +830,7 @@ class InstagramOAuthService {
           errorCode: 190
         };
       }
-      
+
       return {
         success: false,
         error: error.response?.data?.error?.message || error.message,
@@ -847,7 +847,7 @@ class InstagramOAuthService {
     try {
       // Sanitize token
       const cleanToken = accessToken?.replace(/\s+/g, '').trim();
-      
+
       const response = await axios.get(`${this.graphApiUrl}/${igAccountId}/conversations`, {
         params: {
           fields: 'id,updated_time,message_count',
@@ -862,7 +862,7 @@ class InstagramOAuthService {
       };
     } catch (error) {
       console.error('[InstagramOAuth] Get conversations error:', error.response?.data || error.message);
-      
+
       // Handle error code 190 specifically
       if (error.response?.data?.error?.code === 190) {
         return {
@@ -871,7 +871,7 @@ class InstagramOAuthService {
           errorCode: 190
         };
       }
-      
+
       return {
         success: false,
         error: error.response?.data?.error?.message || error.message,
@@ -888,7 +888,7 @@ class InstagramOAuthService {
     try {
       // Sanitize token
       const cleanToken = accessToken?.replace(/\s+/g, '').trim();
-      
+
       const response = await axios.get(`${this.graphApiUrl}/${conversationId}/messages`, {
         params: {
           fields: 'id,created_time,from,to,message',
@@ -902,7 +902,7 @@ class InstagramOAuthService {
       };
     } catch (error) {
       console.error('[InstagramOAuth] Get messages error:', error.response?.data || error.message);
-      
+
       // Handle error code 190 specifically
       if (error.response?.data?.error?.code === 190) {
         return {
@@ -911,7 +911,7 @@ class InstagramOAuthService {
           errorCode: 190
         };
       }
-      
+
       return {
         success: false,
         error: error.response?.data?.error?.message || error.message,
@@ -928,7 +928,7 @@ class InstagramOAuthService {
     try {
       // Sanitize token
       const cleanToken = accessToken?.replace(/\s+/g, '').trim();
-      
+
       const response = await axios.post(`${this.graphApiUrl}/me/messages`, {
         recipient: { id: recipientId },
         message: { text: message },
@@ -941,7 +941,7 @@ class InstagramOAuthService {
       };
     } catch (error) {
       console.error('[InstagramOAuth] Send message error:', error.response?.data || error.message);
-      
+
       // Handle error code 190 specifically
       if (error.response?.data?.error?.code === 190) {
         return {
@@ -950,7 +950,7 @@ class InstagramOAuthService {
           errorCode: 190
         };
       }
-      
+
       return {
         success: false,
         error: error.response?.data?.error?.message || error.message,
@@ -967,7 +967,7 @@ class InstagramOAuthService {
     try {
       // Sanitize token
       const cleanToken = accessToken?.replace(/\s+/g, '').trim();
-      
+
       const response = await axios.get(`${this.graphApiUrl}/${igAccountId}/insights`, {
         params: {
           metric: metrics.join(','),
@@ -982,7 +982,7 @@ class InstagramOAuthService {
       };
     } catch (error) {
       console.error('[InstagramOAuth] Get insights error:', error.response?.data || error.message);
-      
+
       // Handle error code 190 specifically
       if (error.response?.data?.error?.code === 190) {
         return {
@@ -991,7 +991,7 @@ class InstagramOAuthService {
           errorCode: 190
         };
       }
-      
+
       return {
         success: false,
         error: error.response?.data?.error?.message || error.message,

@@ -20,9 +20,9 @@ class AIPostController {
       console.log('[AIPostController] generateAndPublishPost called');
       const userId = req.user?.id;
       const io = req.app.get('io');
-      
+
       console.log('[AIPostController] User ID:', userId);
-      
+
       if (!userId) {
         console.log('[AIPostController] No user ID found');
         return res.status(401).json({
@@ -58,7 +58,7 @@ class AIPostController {
 
       // Mark generation as in progress
       this.activeGenerations.set(userId, true);
-      
+
       // Emit start event
       if (io) {
         io.emit(`post-generation:${userId}`, {
@@ -107,7 +107,7 @@ class AIPostController {
 
       // Get Gemini API key from user or environment
       const geminiApiKey = user.geminiApiKey || process.env.GEMINI_API_KEY;
-      
+
       if (!geminiApiKey) {
         this.activeGenerations.delete(userId);
         return res.status(400).json({
@@ -115,13 +115,13 @@ class AIPostController {
           error: 'Gemini API key not configured. Please configure it in the Configuration tab or set GEMINI_API_KEY in environment variables.'
         });
       }
-      
+
       console.log('[AIPostController] Using Gemini API key:', geminiApiKey ? 'Found' : 'Not found');
 
       // Get user context for personalization (optional)
       const UserContext = require('../models/user-context.model');
       let userContext = await UserContext.findOne({ userId });
-      
+
       // Merge saved context with current input
       let finalContext = {
         accountType: req.body.accountType || userContext?.accountType || 'business',
@@ -133,7 +133,7 @@ class AIPostController {
         brandDescription: userContext?.brandDescription,
         preferredImageStyle: userContext?.preferredImageStyle
       };
-      
+
       if (userContext) {
         console.log('[AIPostController] Using saved user context for personalization');
       }
@@ -146,7 +146,7 @@ class AIPostController {
       // Step 1: Generate post content with personalized context
       console.log('[AIPostController] Generating post content...');
       console.log('[AIPostController] Context:', JSON.stringify(finalContext, null, 2));
-      
+
       if (io) {
         io.emit(`post-generation:${userId}`, {
           status: 'generating-content',
@@ -154,12 +154,12 @@ class AIPostController {
           progress: 20
         });
       }
-      
+
       let postContent;
       try {
         postContent = await this.aiPostGenerator.generatePost(finalContext);
         console.log('[AIPostController] Post content generated successfully');
-        
+
         if (io) {
           io.emit(`post-generation:${userId}`, {
             status: 'content-generated',
@@ -171,7 +171,7 @@ class AIPostController {
       } catch (genError) {
         console.error('[AIPostController] Content generation failed:', genError.message);
         console.error('[AIPostController] Error stack:', genError.stack);
-        
+
         if (io) {
           io.emit(`post-generation:${userId}`, {
             status: 'error',
@@ -186,7 +186,7 @@ class AIPostController {
       // Step 2: Generate image with Pollinations.ai
       console.log('[AIPostController] Generating image...');
       console.log('[AIPostController] Image prompt:', postContent.imagePrompt);
-      
+
       if (io) {
         io.emit(`post-generation:${userId}`, {
           status: 'generating-image',
@@ -194,12 +194,12 @@ class AIPostController {
           progress: 50
         });
       }
-      
+
       let imageBuffer;
       try {
         imageBuffer = await this.imageGenerator.generateImage(postContent.imagePrompt);
         console.log('[AIPostController] Image generated successfully');
-        
+
         if (io) {
           io.emit(`post-generation:${userId}`, {
             status: 'image-generated',
@@ -210,7 +210,7 @@ class AIPostController {
       } catch (imgError) {
         console.error('[AIPostController] Image generation failed:', imgError.message);
         console.error('[AIPostController] Error stack:', imgError.stack);
-        
+
         if (io) {
           io.emit(`post-generation:${userId}`, {
             status: 'error',
@@ -221,7 +221,7 @@ class AIPostController {
         }
         throw new Error(`Image generation failed: ${imgError.message}`);
       }
-      
+
       // Update user context stats
       if (userContext) {
         userContext.totalPostsGenerated += 1;
@@ -262,7 +262,7 @@ class AIPostController {
       let publishResult = null;
       if (autoPublish) {
         console.log('[AIPostController] Publishing to Instagram...');
-        
+
         if (io) {
           io.emit(`post-generation:${userId}`, {
             status: 'publishing',
@@ -270,7 +270,7 @@ class AIPostController {
             progress: 80
           });
         }
-        
+
         try {
           // Create media container and publish (location disabled for now)
           // To enable location: Get valid location_id from Instagram's location search API
@@ -292,7 +292,7 @@ class AIPostController {
           await generatedPost.save();
 
           console.log('[AIPostController] Post published successfully');
-          
+
           if (io) {
             io.emit(`post-generation:${userId}`, {
               status: 'completed',
@@ -307,18 +307,29 @@ class AIPostController {
           }
         } catch (publishError) {
           console.error('[AIPostController] Publishing failed:', publishError.message);
-          
+
+          // Check for OAuth/Token errors
+          const isAuthError = publishError.message.includes('OAuth') ||
+            publishError.message.includes('token') ||
+            publishError.message.includes('190') ||
+            publishError.message.includes('validate application') ||
+            publishError.message.includes('Cannot parse access token');
+
+          const userMessage = isAuthError
+            ? 'Publishing failed: Your Instagram connection has expired or is invalid. Please go to the Configuration tab and reconnect your Instagram account.'
+            : `Publishing failed: ${publishError.message}`;
+
           // Update post status to failed
           generatedPost.status = 'failed';
-          generatedPost.error = publishError.message;
+          generatedPost.error = userMessage;
           await generatedPost.save();
 
           if (io) {
             io.emit(`post-generation:${userId}`, {
               status: 'error',
-              message: `Publishing failed: ${publishError.message}`,
+              message: userMessage,
               progress: 0,
-              error: publishError.message,
+              error: userMessage,
               data: {
                 postId: generatedPost._id,
                 caption: postContent.fullCaption
@@ -327,12 +338,13 @@ class AIPostController {
           }
 
           this.activeGenerations.delete(userId);
-          
+
           return res.status(500).json({
             success: false,
-            error: `Post generated but publishing failed: ${publishError.message}`,
+            error: userMessage,
             postContent,
-            postId: generatedPost._id
+            postId: generatedPost._id,
+            needsReconnect: isAuthError
           });
         }
       } else {
@@ -373,10 +385,10 @@ class AIPostController {
       if (userId) {
         this.activeGenerations.delete(userId);
       }
-      
+
       console.error('[AIPostController] Error:', error);
       console.error('[AIPostController] Error stack:', error.stack);
-      
+
       const io = req.app.get('io');
       if (io && userId) {
         io.emit(`post-generation:${userId}`, {
@@ -386,7 +398,7 @@ class AIPostController {
           error: error.message
         });
       }
-      
+
       return res.status(500).json({
         success: false,
         error: error.message || 'Failed to generate post',
@@ -401,7 +413,7 @@ class AIPostController {
   async getGenerationStatus(req, res) {
     try {
       const userId = req.user?.id;
-      
+
       if (!userId) {
         return res.status(401).json({
           success: false,
@@ -430,7 +442,7 @@ class AIPostController {
   async getGeneratedPosts(req, res) {
     try {
       const userId = req.user?.id;
-      
+
       if (!userId) {
         return res.status(401).json({
           success: false,
@@ -458,7 +470,7 @@ class AIPostController {
     } catch (error) {
       console.error('[AIPostController] Error fetching posts:', error);
       console.error('[AIPostController] Error stack:', error.stack);
-      
+
       return res.status(500).json({
         success: false,
         error: 'Failed to fetch posts',
@@ -473,7 +485,7 @@ class AIPostController {
   async saveUserContext(req, res) {
     try {
       const userId = req.user?.id;
-      
+
       if (!userId) {
         return res.status(401).json({
           success: false,
@@ -482,7 +494,7 @@ class AIPostController {
       }
 
       const UserContext = require('../models/user-context.model');
-      
+
       // Update or create user context
       const userContext = await UserContext.findOneAndUpdate(
         { userId },
@@ -511,7 +523,7 @@ class AIPostController {
     } catch (error) {
       console.error('[AIPostController] Error saving context:', error);
       console.error('[AIPostController] Error stack:', error.stack);
-      
+
       return res.status(500).json({
         success: false,
         error: 'Failed to save account preferences',
@@ -526,7 +538,7 @@ class AIPostController {
   async getUserContext(req, res) {
     try {
       const userId = req.user?.id;
-      
+
       if (!userId) {
         return res.status(401).json({
           success: false,
@@ -536,7 +548,7 @@ class AIPostController {
 
       const UserContext = require('../models/user-context.model');
       const Post = require('../models/post.model');
-      
+
       const userContext = await UserContext.findOne({ userId });
 
       // Get actual posts count from Post model
@@ -574,7 +586,7 @@ class AIPostController {
     } catch (error) {
       console.error('[AIPostController] Error fetching context:', error);
       console.error('[AIPostController] Error stack:', error.stack);
-      
+
       return res.status(500).json({
         success: false,
         error: 'Failed to fetch account context',
@@ -589,7 +601,7 @@ class AIPostController {
   async checkPublishingLimit(req, res) {
     try {
       const userId = req.user?.id;
-      
+
       if (!userId) {
         return res.status(401).json({
           success: false,
@@ -665,13 +677,15 @@ class AIPostController {
           success: true,
           limitInfo: {
             available: false,
-            message: 'Publishing limit information not available with current token type'
+            message: serviceError.message || 'Publishing limit information not available with current token type',
+            error: serviceError.message,
+            code: serviceError.code
           }
         });
       }
     } catch (error) {
       console.error('[AIPostController] Unexpected error checking limit:', error);
-      
+
       return res.status(500).json({
         success: false,
         error: 'Failed to check publishing limit',
@@ -687,7 +701,7 @@ class AIPostController {
     try {
       const userId = req.user?.id;
       const { postId } = req.params;
-      
+
       if (!userId) {
         return res.status(401).json({
           success: false,
@@ -696,10 +710,10 @@ class AIPostController {
       }
 
       const Post = require('../models/post.model');
-      
+
       // Find post and verify ownership
       const post = await Post.findOne({ _id: postId, userId });
-      
+
       if (!post) {
         return res.status(404).json({
           success: false,
@@ -719,7 +733,7 @@ class AIPostController {
     } catch (error) {
       console.error('[AIPostController] Error deleting post:', error);
       console.error('[AIPostController] Error stack:', error.stack);
-      
+
       return res.status(500).json({
         success: false,
         error: 'Failed to delete post',
@@ -734,7 +748,7 @@ class AIPostController {
   async saveApiKey(req, res) {
     try {
       const userId = req.user?.id;
-      
+
       if (!userId) {
         return res.status(401).json({
           success: false,
@@ -767,7 +781,7 @@ class AIPostController {
           `https://generativelanguage.googleapis.com/v1beta/models?key=${apiKey}`,
           { timeout: 10000 }
         );
-        
+
         if (response.data && response.data.models) {
           console.log('[AIPostController] API key validated successfully');
           console.log('[AIPostController] Available models:', response.data.models.length);
@@ -776,7 +790,7 @@ class AIPostController {
         }
       } catch (validationError) {
         console.error('[AIPostController] API key validation failed:', validationError.message);
-        
+
         // Check if it's an authentication error
         if (validationError.response?.status === 400 || validationError.response?.status === 403) {
           return res.status(400).json({
@@ -784,7 +798,7 @@ class AIPostController {
             error: 'Invalid API key. Please check your key and try again.'
           });
         }
-        
+
         return res.status(400).json({
           success: false,
           error: 'Failed to validate API key. Please try again.'
@@ -814,7 +828,7 @@ class AIPostController {
     } catch (error) {
       console.error('[AIPostController] Error saving API key:', error);
       console.error('[AIPostController] Error stack:', error.stack);
-      
+
       return res.status(500).json({
         success: false,
         error: 'Failed to save API key',
@@ -829,7 +843,7 @@ class AIPostController {
   async getApiKeyStatus(req, res) {
     try {
       const userId = req.user?.id;
-      
+
       if (!userId) {
         return res.status(401).json({
           success: false,
@@ -855,7 +869,7 @@ class AIPostController {
     } catch (error) {
       console.error('[AIPostController] Error getting API key status:', error);
       console.error('[AIPostController] Error stack:', error.stack);
-      
+
       return res.status(500).json({
         success: false,
         error: 'Failed to get API key status',
