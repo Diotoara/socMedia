@@ -1,16 +1,3 @@
-# Instagram Comment Automation 🤖
-
-AI-powered automatic replies to Instagram comments using MongoDB Atlas and Gemini AI.
-
-[![Docker](https://img.shields.io/badge/Docker-Ready-blue?logo=docker)](https://www.docker.com/)
-[![Docker Hub](https://img.shields.io/badge/Docker%20Hub-Available-blue?logo=docker)](https://hub.docker.com/r/yourusername/instagram-automation)
-[![Node.js](https://img.shields.io/badge/Node.js-18+-green?logo=node.js)](https://nodejs.org/)
-[![MongoDB](https://img.shields.io/badge/MongoDB-Atlas-green?logo=mongodb)](https://www.mongodb.com/cloud/atlas)
-[![React](https://img.shields.io/badge/React-18+-blue?logo=react)](https://reactjs.org/)
-
----
-
-## ⚠️ Important: Instagram API Update
 
 **New scope requirements effective January 27, 2025!** 
 
@@ -92,7 +79,7 @@ Choose your preferred setup method:
 
 ```bash
 # 1. Pull the pre-built image
-docker pull yourusername/instagram-automation:latest
+docker pull aayu337/social-media-automaton:latest
 
 # 2. Create .env file with your credentials
 cat > .env << EOF
@@ -108,7 +95,7 @@ docker run -d \
   --env-file .env \
   -v $(pwd)/storage:/app/server/storage \
   --name instagram-automation \
-  yourusername/instagram-automation:latest
+  aayu337/social-media-automaton:latest
 
 # 4. Access at http://localhost:3000
 ```
@@ -721,28 +708,31 @@ The application is available as a pre-built Docker image:
 
 ```bash
 # Pull from Docker Hub
-docker pull yourusername/instagram-automation:latest
+docker pull aayu337/social-media-automaton:latest
 
 # Run with environment variables
 docker run -d \
   -p 3000:3000 \
   --env-file .env \
   -v $(pwd)/storage:/app/server/storage \
-  yourusername/instagram-automation:latest
+  aayu337/social-media-automaton:latest
 ```
 
 **Build and Push Your Own:**
 
 ```bash
 # Make the script executable
-chmod +x build-and-push.sh
+chmod +x deploy.sh
 
-# Set your Docker Hub username
-export DOCKER_USERNAME=yourusername
-
-# Build and push
-./build-and-push.sh 1.0.0
+# Run the deployment script
+./deploy.sh
 ```
+
+The `deploy.sh` script will automatically:
+1. Check your Docker login status
+2. Build the image
+3. Push it to Docker Hub (`aayu337/social-media-automaton`)
+4. Update your `docker-compose.hub.yml`
 
 📦 **Full Guide:** See [DOCKER_HUB_DEPLOYMENT.md](./DOCKER_HUB_DEPLOYMENT.md)
 
