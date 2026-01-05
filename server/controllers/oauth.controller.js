@@ -8,10 +8,12 @@ const instagramOAuth = new InstagramOAuthService();
 const youtubeOAuth = new YouTubeOAuthService();
 
 const getRedirectBaseUrl = () => {
-  const raw = process.env.OAUTH_REDIRECT_BASE_URL || process.env.APP_URL || 'http://localhost:3000';
-  const trimmed = raw.trim();
-  const normalized = (trimmed || 'http://localhost:3000').replace(/\/+$/, '');
-  return normalized;
+  // Use the ngrok URL specifically
+  const url = process.env.OAUTH_REDIRECT_URI 
+    ? process.env.OAUTH_REDIRECT_URI.split('/api/oauth')[0] // Extracts the base
+    : process.env.OAUTH_REDIRECT_BASE_URL;
+    
+  return url || 'https://e35e0347e774.ngrok-free.app'; // Force your current ngrok as final fallback
 };
 
 const buildRedirectUri = (path) => {

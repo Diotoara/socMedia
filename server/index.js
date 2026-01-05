@@ -181,7 +181,7 @@ app.use('/api/oauth', oauthRoutes);
 // ============================================
 // Instagram Status Routes (Protected)
 // ============================================
-app.use('/api/instagram', authMiddleware, instagramStatusRoutes);
+app.use('/api/instagram', instagramStatusRoutes);
 
 // ============================================
 // Stats Routes (Protected)
@@ -213,15 +213,15 @@ app.use('/webhooks/meta', metaWebhookRouter);
 // ============================================
 
 // Instagram credentials
-app.post('/api/config/instagram', authMiddleware, (req, res) => {
+app.post('/api/config/instagram',  (req, res) => {
   configController.saveInstagramCredentials(req, res);
 });
 
-app.get('/api/config/instagram', authMiddleware, (req, res) => {
+app.get('/api/config/instagram', (req, res) => {
   configController.getInstagramConfig(req, res);
 });
 
-app.delete('/api/config/instagram', authMiddleware, (req, res) => {
+app.delete('/api/config/instagram', (req, res) => {
   configController.deleteInstagramCredentials(req, res);
 });
 
