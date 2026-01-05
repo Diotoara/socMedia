@@ -11,7 +11,7 @@ router.get('/instagram/auth-url', authMiddleware, (req, res) => {
   oauthController.getInstagramAuthUrl(req, res);
 });
 
-// Callback does NOT require auth middleware (uses session-based state validation)
+// // Callback does NOT require auth middleware (uses session-based state validation)
 router.get('/instagram/callback', (req, res) => {
   oauthController.handleInstagramCallback(req, res);
 });

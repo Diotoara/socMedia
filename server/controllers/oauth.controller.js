@@ -97,6 +97,23 @@ class OAuthController {
    * Handle Instagram OAuth callback
    */
   async handleInstagramCallback(req, res) {
+    console.log('[Webhook Debug] Received Query:', req.query);
+    const mode = req.query['hub.mode'];
+    const token = req.query['hub.verify_token'];
+    const challenge = req.query['hub.challenge'];
+
+    // 2. The Handshake Logic
+    if (mode === 'subscribe') {
+        const MY_VERIFY_TOKEN = 'victoria_secret'; 
+        if (token === MY_VERIFY_TOKEN) {
+            console.log('[Webhook] Verification successful!');
+            return res.status(200).set('Content-Type', 'text/plain').send(challenge); 
+        } else {
+            console.error('[Webhook] Token mismatch. Expected victoria_secret, got:', token);
+            return res.sendStatus(403);
+        }
+    }
+    
     const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
     
     try {

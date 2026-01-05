@@ -1,6 +1,7 @@
 const express = require('express');
 const axios = require('axios');
-
+const path = require('path');
+require('dotenv').config({ path: path.resolve(__dirname, '../../.env') });
 /**
  * Instagram OAuth Helper - NEW Instagram API with Instagram Login
  * Uses the latest Instagram API (launched mid-2024) that does NOT require Facebook Page
@@ -18,8 +19,8 @@ const axios = require('axios');
  * 5. Visit http://localhost:3001/auth to start OAuth flow
  */
 
-const APP_ID = process.env.FACEBOOK_APP_ID;
-const APP_SECRET = process.env.FACEBOOK_APP_SECRET;
+const APP_ID = process.env.INSTAGRAM_CLIENT_ID;
+const APP_SECRET = process.env.INSTAGRAM_CLIENT_SECRET;
 const REDIRECT_URI = process.env.OAUTH_REDIRECT_URI || 'http://localhost:3001/auth/callback';
 
 // NEW scope values (as of mid-2024)
@@ -35,9 +36,8 @@ const SCOPES = REQUIRED_SCOPES.join(',');
 
 if (!APP_ID || !APP_SECRET) {
   console.error('❌ Missing required environment variables:');
-  console.error('   FACEBOOK_APP_ID');
-  console.error('   FACEBOOK_APP_SECRET');
-  console.error('\nAdd these to your .env file');
+  console.error('   INSTAGRAM_CLIENT_ID');  
+  console.error('   INSTAGRAM_CLIENT_SECRET'); 
   process.exit(1);
 }
 
